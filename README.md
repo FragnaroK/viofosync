@@ -4,14 +4,12 @@
 
 Self-hosted web app for syncing, browsing, and exporting recordings from a Viofo dashcam over Wi-Fi. It should work with most current Viofo cameras. Runs as a single Docker container on a NAS or any always-on host on the same network as the dashcam.
 
-> **v2 is a full rewrite.** v1 was a cron-driven CLI based on [BlackVueSync](https://github.com/acolomba/BlackVueSync). v2 uses the same dashcam protocol but ships a web UI, journey-detected GPS maps, a timeline video editor, ffmpeg exports, JSON-backed settings, a first-run setup wizard, and a UI-driven download manager. The v1 cron CLI is preserved on the `main` branch.
-
 ## Features
 
 - **Automatic Wi-Fi sync** - clips copy from the dashcam in your car when it joins your home wi-fi.
 - **Download control** - skip clips you don't want, retry failed ones, and prioritise recent footage, all from the download queue.
 - **GPS triage** - fetches each clip's GPS trace in seconds without downloading the full recording, so journeys, stops, and place names appear before the footage does — and the download queue can be organised around where you actually drove.
-- **Sync filtering** - restrict syncing to locked (event) clips only, or auto-skip anything recorded while parked at a named location such as home. GPS-driven, and the groundwork for richer download/delete ordering to come.
+- **Sync filtering** - restrict syncing to locked (event) clips only, skip all parking or auto-skip anything recorded while parked at a named location such as home.
 - **Archive browser** - clips grouped by day, played in your browser; hover a clip to scrub a quick preview. Nothing to install on your phone or laptop.
 - **Journey maps** - automatic journey detection with each trip shown on a map with stops detected and place names looked up automatically.
 - **Clip retention control** - mark any clip read-only to keep it indefinitely (protected from pruning and delete), or delete a clip straight off the camera's SD card once it's safely saved.
@@ -24,7 +22,7 @@ Self-hosted web app for syncing, browsing, and exporting recordings from a Viofo
 
 ### Coming Soon
 
-- **Advanced sync policies** - building on the GPS-driven filtering already in place: prioritise or skip recordings by type and location, fetch locked event clips first, and deprioritise parking-mode footage.
+- **Firmware mods** - patch management system. Add new camera features for thermal monitoring and power management. Keep wi-fi on in geofence but stop recording. Pause downlaods while camera is hot or power-off when downloads are complete.
 
 ![Timeline video editor](https://raw.githubusercontent.com/RobXYZ/viofosync/main/screenshots/timeline_editor.webp)![Download manager](https://raw.githubusercontent.com/RobXYZ/viofosync/main/screenshots/download_manager.webp)
 
@@ -260,6 +258,8 @@ Truthful archive deletes — including the unlock and confirm-through flow — a
 The GPX extraction logic uses the method described at [https://sergei.nz/extracting-gps-data-from-viofo-a119-and-other-novatek-powered-cameras/](https://sergei.nz/extracting-gps-data-from-viofo-a119-and-other-novatek-powered-cameras/).
 
 This software is unaffiliated with Viofo or any other vendor.
+
+> **v2 is a full rewrite.** v1 was a cron-driven CLI based on [BlackVueSync](https://github.com/acolomba/BlackVueSync). v2 uses the same dashcam protocol but ships a web UI, journey-detected GPS maps, a timeline video editor, ffmpeg exports, JSON-backed settings, a first-run setup wizard, and a UI-driven download manager. The v1 cron CLI is preserved on the `main` branch.
 
 ### License
 
