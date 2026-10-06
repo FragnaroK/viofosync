@@ -95,6 +95,7 @@ class ConfigStore:
     }
     _INT_KEYS = {
         "TIMEOUT", "DOWNLOAD_ATTEMPTS", "MAX_DOWNLOAD_ATTEMPTS",
+        "PARALLEL_DOWNLOADS",
         "SYNC_INTERVAL", "WEB_PORT",
     }
 

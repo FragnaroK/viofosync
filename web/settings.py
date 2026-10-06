@@ -71,6 +71,7 @@ class Snapshot:
     timeout: float
     download_attempts: int
     max_attempts: int
+    parallel_downloads: int
     sync_interval_seconds: int
     enable_scheduled_sync: bool
     primary_scope: str
@@ -341,6 +342,7 @@ class SettingsProvider:
             timeout=float(m.TIMEOUT),
             download_attempts=m.DOWNLOAD_ATTEMPTS,
             max_attempts=m.MAX_DOWNLOAD_ATTEMPTS,
+            parallel_downloads=m.PARALLEL_DOWNLOADS,
             sync_interval_seconds=m.SYNC_INTERVAL,
             enable_scheduled_sync=m.ENABLE_SCHEDULED_SYNC,
             primary_scope=m.PRIMARY_SCOPE,

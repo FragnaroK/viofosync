@@ -69,7 +69,7 @@ def test_index_stamps_track_file_mtime(
         }, follow_redirects=False)
 
         r1 = c.get("/")
-        m1 = re.search(r'/static/app\.js\?v=(\d+)', r1.text)
+        m1 = re.search(r'static/app\.js\?v=(\d+)', r1.text)
         assert m1, "first response missing app.js cache-bust"
 
         # Bump the file's mtime forward and refetch.
@@ -77,7 +77,7 @@ def test_index_stamps_track_file_mtime(
         os.utime(app_js, (st.st_atime, st.st_mtime + 60))
 
         r2 = c.get("/")
-        m2 = re.search(r'/static/app\.js\?v=(\d+)', r2.text)
+        m2 = re.search(r'static/app\.js\?v=(\d+)', r2.text)
         assert m2, "second response missing app.js cache-bust"
         assert m1.group(1) != m2.group(1), (
             "cache-bust stamp didn't change after mtime touch"

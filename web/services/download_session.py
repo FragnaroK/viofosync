@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import Callable, Deque, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Optional, Tuple
 
 
 class DownloadSession:
@@ -35,9 +35,7 @@ class DownloadSession:
         self._started_at: Optional[float] = None
         self._wire_bytes = 0
         self._samples: Deque[Tuple[float, int]] = deque()
-        self._cur_file: Optional[str] = None
-        self._cur_file_bytes = 0
-        self._cur_total: Optional[int] = None
+        self._files: Dict[str, List[Optional[int]]] = {}  # name -> [done, total]
         self._remaining_pending = 0
 
     # ---- event feeds (called on the loop) ----
@@ -48,9 +46,7 @@ class DownloadSession:
             self._started_at = self._mono()
             self._wire_bytes = 0
             self._samples.clear()
-        self._cur_file = filename
-        self._cur_file_bytes = 0
-        self._cur_total = total
+        self._files[filename] = [0, total]
         self._refresh_remaining()
 
     def note_progress(
@@ -58,19 +54,16 @@ class DownloadSession:
     ) -> None:
         if not self._active:
             self.note_started(filename, total)
-        if filename == self._cur_file:
-            delta = bytes_done - self._cur_file_bytes
-        else:
-            # A file we never saw an item_started for.
-            self._cur_file = filename
-            delta = bytes_done
+        # A file we never saw an item_started for starts from zero.
+        entry = self._files.setdefault(filename, [0, total])
+        delta = bytes_done - (entry[0] or 0)
         if delta < 0:
             # A retry reset bytes_done within the same file — never let the
             # monotonic counter go backwards.
             delta = 0
         self._wire_bytes += delta
-        self._cur_file_bytes = bytes_done
-        self._cur_total = total
+        entry[0] = bytes_done
+        entry[1] = total
         now = self._mono()
         self._samples.append((now, self._wire_bytes))
         self._prune(now)
@@ -78,11 +71,9 @@ class DownloadSession:
     def note_finished(
         self, filename: str, bytes_written: Optional[int],
     ) -> None:
-        # Progress ticks already accounted for the bytes; just clear the
+        # Progress ticks already accounted for the bytes; just drop the
         # per-file cursor so the next file starts fresh.
-        self._cur_file = None
-        self._cur_file_bytes = 0
-        self._cur_total = None
+        self._files.pop(filename, None)
         self._refresh_remaining()
 
     def note_idle(self) -> None:
@@ -90,9 +81,7 @@ class DownloadSession:
         self._started_at = None
         self._wire_bytes = 0
         self._samples.clear()
-        self._cur_file = None
-        self._cur_file_bytes = 0
-        self._cur_total = None
+        self._files.clear()
         self._remaining_pending = 0
 
     def refresh_remaining(self) -> None:
@@ -131,8 +120,9 @@ class DownloadSession:
         if not speed:            # None or 0
             return None
         remaining = self._remaining_pending
-        if self._cur_total:
-            remaining += max(0, self._cur_total - self._cur_file_bytes)
+        for done, total in self._files.values():
+            if total:
+                remaining += max(0, total - (done or 0))
         if remaining <= 0:
             return 0.0
         return remaining / speed

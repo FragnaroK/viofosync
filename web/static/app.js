@@ -4031,6 +4031,8 @@ function renderSyncSection(pane) {
               textInput("SYNC_INTERVAL", { type: "number", min: 60, max: 86400 }));
   renderField(pane, "DOWNLOAD_ATTEMPTS", "Per-cycle retry count",
               textInput("DOWNLOAD_ATTEMPTS", { type: "number", min: 1, max: 10 }));
+  renderField(pane, "PARALLEL_DOWNLOADS", "Parallel downloads",
+              textInput("PARALLEL_DOWNLOADS", { type: "number", min: 1, max: 8 }));
   renderField(pane, "MAX_DOWNLOAD_ATTEMPTS", "Total retry budget",
               textInput("MAX_DOWNLOAD_ATTEMPTS", { type: "number", min: 1, max: 20 }));
 

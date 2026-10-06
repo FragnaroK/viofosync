@@ -69,6 +69,7 @@ def _editable_values(snap) -> dict[str, Any]:
         "TIMEOUT": int(snap.timeout),
         "DOWNLOAD_ATTEMPTS": snap.download_attempts,
         "MAX_DOWNLOAD_ATTEMPTS": snap.max_attempts,
+        "PARALLEL_DOWNLOADS": snap.parallel_downloads,
         "SYNC_INTERVAL": snap.sync_interval_seconds,
         "ENABLE_SCHEDULED_SYNC": snap.enable_scheduled_sync,
         "WEB_HOST": snap.host,

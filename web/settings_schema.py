@@ -92,6 +92,7 @@ class SettingsModel(BaseModel):
     TIMEOUT: int = Field(default=10, ge=1, le=60)
     DOWNLOAD_ATTEMPTS: int = Field(default=3, ge=1, le=10)
     MAX_DOWNLOAD_ATTEMPTS: int = Field(default=5, ge=1, le=20)
+    PARALLEL_DOWNLOADS: int = Field(default=1, ge=1, le=8)
     SYNC_INTERVAL: int = Field(default=600, ge=60, le=86400)
     ENABLE_SCHEDULED_SYNC: bool = True
     # Per-connection download profiles. The sync worker picks the primary or
@@ -234,7 +235,7 @@ EDITABLE_KEYS = {
     "ADDRESS", "ADDRESS_FALLBACK", "IMPORT_PATH", "INSTANCE_NAME", "GROUPING", "HTML", "GPS_EXTRACT",
     "DERIVE_THUMBS_EAGER", "DERIVE_FILMSTRIPS_EAGER",
     "DELETE_AFTER_DOWNLOAD",
-    "TIMEOUT", "DOWNLOAD_ATTEMPTS", "MAX_DOWNLOAD_ATTEMPTS", "SYNC_INTERVAL",
+    "TIMEOUT", "DOWNLOAD_ATTEMPTS", "MAX_DOWNLOAD_ATTEMPTS", "PARALLEL_DOWNLOADS", "SYNC_INTERVAL",
     "ENABLE_SCHEDULED_SYNC", "WEB_HOST", "WEB_PORT", "EXPORT_ENCODER",
     "NOMINATIM_EMAIL", "GEOCODE_ENABLED",
     "PRIMARY_SCOPE", "PRIMARY_GPS_TRIAGE",

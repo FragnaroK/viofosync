@@ -357,6 +357,9 @@ def run_recording_status_release(db, *, recording_state) -> int:
 
 
 class SyncWorker:
+    _inflight = 0  # downloads currently inside _download_one
+    _premarked: frozenset = frozenset()  # rows the drain already marked downloading
+
     def __init__(
         self,
         db: Database,
@@ -388,6 +391,7 @@ class SyncWorker:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._running_cycle = False
         self._current_filename: Optional[str] = None
+        self._inflight = 0  # downloads currently inside _download_one
         # The address chosen for the in-flight cycle (primary or the
         # alternative). Selected once per cycle and held for the whole
         # drain — no mid-download switching. None when offline.
@@ -1002,49 +1006,79 @@ class SyncWorker:
         # failure-log summary on every exit path (drained, paused,
         # offline, disk full).
         did_any = False
+        disk_full = False
+        # In-flight downloads (up to PARALLEL_DOWNLOADS), task -> filename.
+        running: dict[asyncio.Task, str] = {}
         try:
             while not self._stop.is_set():
-                if self._paused.is_set():
-                    break
                 # Re-resolve each iteration so a settings change mid-drain
-                # (scope or triage on this connection) applies immediately.
+                # (scope, triage, parallelism) applies immediately.
                 snap = self._provider.get()
                 prof = profile_for(snap, self._active_source)
-                item = q.next_pending(
-                    self.db,
-                    scope=prof.scope,
-                    triage_gate=prof.gps_triage,
-                    active_guard=True,
+                limit = max(1, int(getattr(snap, "parallel_downloads", 1) or 1))
+                # A skip/pause cancel stays set until in-flight transfers
+                # unwind; spawning into it would just cancel the new one.
+                can_spawn = (
+                    not self._paused.is_set()
+                    and not disk_full
+                    and len(running) < limit
+                    and not (running and self._cancel_current.is_set())
                 )
-                if item is None:
-                    break
-                # Re-probe occasionally so we don't burn a whole
-                # retry budget on a dashcam that's already gone.
-                if did_any and not await self._probe_one(self._active_address):
-                    # Camera gone mid-drain: no active connection, so
-                    # nothing should be reported as held.
-                    self._active_source = None
-                    await self.hub.broadcast({
-                        "type": "dashcam_offline",
-                    })
-                    return True
-                self._current_filename = item.filename
-                self._broadcast_sync_state()
-                try:
-                    ok = await self._download_one(item)
-                except DiskFullError:
-                    log.warning(
-                        "recordings volume full — stopping this cycle's "
-                        "downloads; will retry next cycle"
+                item = None
+                if can_spawn:
+                    item = q.next_pending(
+                        self.db,
+                        scope=prof.scope,
+                        triage_gate=prof.gps_triage,
+                        active_guard=True,
                     )
-                    self._current_filename = None
-                    return did_any
-                self._current_filename = None
-                did_any = True
-                if not ok:
-                    # Transient failure. Loop continues with next
+                if item is not None:
+                    # Re-probe occasionally so we don't burn a whole
+                    # retry budget on a dashcam that's already gone.
+                    if (
+                        did_any and not running
+                        and not await self._probe_one(self._active_address)
+                    ):
+                        # Camera gone mid-drain: no active connection, so
+                        # nothing should be reported as held.
+                        self._active_source = None
+                        await self.hub.broadcast({
+                            "type": "dashcam_offline",
+                        })
+                        return True
+                    # Claim the row now so the next next_pending() can't
+                    # hand the same item to a second slot.
+                    q.mark_downloading(self.db, item.id)
+                    self._premarked = self._premarked | {item.id}
+                    task = asyncio.ensure_future(self._download_one(item))
+                    running[task] = item.filename
+                    self._current_filename = item.filename
+                    self._broadcast_sync_state()
+                    if len(running) < limit:
+                        continue
+                if not running:
+                    break
+                done, _ = await asyncio.wait(
+                    running, return_when=asyncio.FIRST_COMPLETED
+                )
+                relist = False
+                for task in done:
+                    del running[task]
+                    try:
+                        ok = task.result()
+                    except DiskFullError:
+                        log.warning(
+                            "recordings volume full — stopping this cycle's "
+                            "downloads; will retry next cycle"
+                        )
+                        disk_full = True
+                        continue
+                    did_any = True
+                    # A transient failure just moves on to the next
                     # pending item, which may well succeed.
-                    continue
+                    relist = relist or ok
+                self._current_filename = next(iter(running.values()), None)
+                self._broadcast_sync_state()
                 # Refresh listing between downloads so clips the
                 # dashcam recorded during this transfer show up in
                 # the queue before we pick the next pending one —
@@ -1052,9 +1086,15 @@ class SyncWorker:
                 # can otherwise spend longer listing than downloading.
                 # Best-effort: a transient listing failure here
                 # leaves the existing queue intact.
-                if self._relist_due():
+                if relist and self._relist_due():
                     await self._refresh_listing_and_reconcile()
+            if disk_full:
+                return did_any
         finally:
+            if running:
+                self._cancel_current.set()
+                await asyncio.gather(*running, return_exceptions=True)
+                self._current_filename = None
             self._flush_drain_failure_summary()
 
         # Re-index + sweep thumbs so new clips appear in the UI.
@@ -1117,9 +1157,22 @@ class SyncWorker:
     # ---- single item download ----
 
     async def _download_one(self, item: q.QueueItem) -> bool:
+        # A stale skip/pause cancel is only dropped when nothing else is
+        # downloading, or it would abort the sibling transfers.
+        if self._inflight == 0:
+            self._cancel_current.clear()
+        self._inflight += 1
+        try:
+            return await self._download_one_impl(item)
+        finally:
+            self._inflight -= 1
+
+    async def _download_one_impl(self, item: q.QueueItem) -> bool:
         snap = self._provider.get()
-        q.mark_downloading(self.db, item.id)
-        self._cancel_current.clear()
+        if item.id in self._premarked:
+            self._premarked = self._premarked - {item.id}
+        else:
+            q.mark_downloading(self.db, item.id)
         loop = asyncio.get_running_loop()
         sink = WebSink(self.hub, loop)
 
