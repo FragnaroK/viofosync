@@ -2619,6 +2619,72 @@ main {
 .gps-badge.gps-pending { color: var(--muted); opacity: 0.7; }
 .queue-items td.gps-cell { text-align: center; }
 
+/* ============================================================
+ * Flow: small, consistent motion so state changes read as
+ * transitions rather than snaps. Everything is gated by the
+ * reduced-motion block at the end.
+ * ============================================================ */
+:root { --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+html { scroll-behavior: smooth; }
+
+/* Tab switches and login -> app fade/rise in. */
+.tab:not([hidden]),
+#app:not([hidden]) {
+  animation: vfs-view-in 220ms var(--ease-out) both;
+}
+@keyframes vfs-view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Expanding cards: .opening is added by the toggle handlers in app.js. */
+.opening {
+  animation: vfs-expand 200ms var(--ease-out) both;
+}
+@keyframes vfs-expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Controls ease between states and give a tactile press. */
+button, select, input, .journey-header, .queue-hour-header, .day-header {
+  transition: background-color 140ms ease, border-color 140ms ease,
+              color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+}
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { cursor: default; }
+
+/* Cards and clips respond to the pointer. */
+.clip-pair { transition: border-color 140ms ease, box-shadow 160ms ease; }
+.clip-pair:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.journey-card { transition: border-color 140ms ease; }
+.journey-card:hover { border-color: var(--border-hover); }
+
+/* Status badge and progress changes glide instead of jumping. */
+.status { transition: color 200ms ease, border-color 200ms ease, background-color 200ms ease; }
+.bar > div { transition: width 400ms linear; }
+
+/* Queue/log rows. */
+.queue-items tbody tr { transition: background-color 120ms ease; }
+.queue-items tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+.log-line { transition: background-color 120ms ease; }
+
+/* Video modal fades in. */
+#modal:not([hidden]) { animation: vfs-fade 160ms ease both; }
+#modal:not([hidden]) .modal-inner { animation: vfs-view-in 200ms var(--ease-out) both; }
+@keyframes vfs-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .tab:not([hidden]), #app:not([hidden]), .opening,
+  #modal:not([hidden]), #modal:not([hidden]) .modal-inner { animation: none; }
+  button:active:not(:disabled) { transform: none; }
+}
+
 /* Journey completion pie — small conic-gradient circle in the journey header. */
 .journey-pie {
   display: inline-block;

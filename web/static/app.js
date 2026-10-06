@@ -156,6 +156,16 @@ async function ifetch(path, opts = {}) {
 
 // ---------- Auth + routing ----------
 
+// Replays the CSS expand animation on a body the user just opened (not on
+// re-renders, which would flicker on every refresh).
+function playOpening(el) {
+  el.classList.remove("opening");
+  void el.offsetWidth;
+  el.classList.add("opening");
+  el.addEventListener("animationend", () => el.classList.remove("opening"),
+    { once: true });
+}
+
 function showLogin() {
   document.getElementById("login").hidden = false;
   document.getElementById("app").hidden = true;
@@ -738,6 +748,7 @@ function renderDayCard(d) {
       return;
     }
     body.hidden = false;
+    playOpening(body);
     state.archiveExpanded.add(d.day);
     await loadDayBody(el);
   });
@@ -1373,6 +1384,7 @@ function wireJourneyToggle(el, initMap, key) {
       else state.journeyExpanded.delete(key);
     }
     setOpen(opening);
+    if (opening) playOpening(body);
   });
   // Restore an expansion remembered across re-renders. Unhide immediately
   // (no visual pop-in), but defer the map init a frame: this runs while the
@@ -2921,6 +2933,7 @@ function renderQueueHour(day, hh, items) {
       state.queueHoursExpanded.add(key);
       body.appendChild(renderHourBody(day, hh, items));
       body.hidden = false;
+      playOpening(body);
       caret.textContent = "▾";
     }
   });
