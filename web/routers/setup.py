@@ -11,6 +11,8 @@ import socket
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+
+from ..ingress import ingress_prefix, inject_base
 from pydantic import BaseModel
 
 from ..settings_schema import validate_new_password
@@ -29,7 +31,7 @@ def setup_page(request: Request) -> HTMLResponse:
     import os
     static = os.path.join(os.path.dirname(__file__), "..", "static", "setup.html")
     with open(static, encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+        return HTMLResponse(inject_base(request, f.read()))
 
 
 @router.post("/setup")
@@ -107,7 +109,9 @@ async def setup_submit(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     provider.set_password(password, actor="setup-wizard")
-    redirect = RedirectResponse(url="/", status_code=303)
+    redirect = RedirectResponse(
+        url=ingress_prefix(request) + "/", status_code=303
+    )
     request.app.state.auth.issue_session(redirect)
     return redirect
 

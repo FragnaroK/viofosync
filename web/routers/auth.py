@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from ..auth import (
     SESSION_COOKIE,
     Auth,
+    auth_disabled,
     get_auth,
     require_session,
 )
@@ -62,7 +63,7 @@ def csrf(
     receive a 403 on a mutating request, then retry with the
     new token in ``X-CSRF-Token``.
     """
-    session_token = request.cookies.get(SESSION_COOKIE)
-    if not session_token:  # defensive — require_session caught this
+    session_token = request.cookies.get(SESSION_COOKIE) or ""
+    if not session_token and not auth_disabled():  # defensive — require_session caught this
         raise HTTPException(status_code=401)
     return {"csrf": auth.issue_csrf(session_token)}

@@ -113,7 +113,7 @@ async function api(path, opts = {}, _retriedCsrf = false) {
     // throw below. Without the guard a persistently-403ing POST (proxy
     // caching the csrf GET, session reissued between calls) recurses
     // forever with no error surfaced — the button just looks dead.
-    const cr = await fetch("/api/auth/csrf", { credentials: "same-origin" });
+    const cr = await fetch("api/auth/csrf", { credentials: "same-origin" });
     if (cr.ok) {
       state.csrf = (await cr.json()).csrf;
       return api(path, opts, true);
@@ -143,7 +143,7 @@ async function ifetch(path, opts = {}) {
   });
   let r = await send();
   if (r.status === 403) {
-    const cr = await fetch("/api/auth/csrf", { credentials: "same-origin" });
+    const cr = await fetch("api/auth/csrf", { credentials: "same-origin" });
     if (cr.ok) state.csrf = (await cr.json()).csrf;
     r = await send();
   }
@@ -167,7 +167,7 @@ async function showApp() {
   // distance formatting picks up the user's choice on first
   // render (rather than re-rendering a tick later).
   await refreshDisplayPrefs();
-  api("/api/auth/me")
+  api("api/auth/me")
     .then((j) => {
       const el = document.getElementById("settings-version");
       if (el && j.version) el.textContent = j.version;
@@ -176,7 +176,7 @@ async function showApp() {
   routeTo(location.hash || "#/archive");
   openSocket();
   try {
-    const s = await api("/api/sync/status");
+    const s = await api("api/sync/status");
     state.syncRunning = s.running;
     state.syncPaused = s.paused;
     // Clamped to the two known names: heldWaitingLabel() interpolates
@@ -192,7 +192,7 @@ async function showApp() {
 
 async function refreshDisplayPrefs() {
   try {
-    const body = await api("/api/settings");
+    const body = await api("api/settings");
     state.distanceUnits = body.editable.DISTANCE_UNITS || "km";
     state.locations = body.editable.LOCATIONS || [];
     buildLocationFilter();
@@ -244,7 +244,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
   const err = document.getElementById("login-error");
   err.textContent = "";
   try {
-    const r = await fetch("/api/auth/login", {
+    const r = await fetch("api/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ password: pw }),
@@ -258,7 +258,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 });
 
 document.getElementById("logout").addEventListener("click", async () => {
-  await api("/api/auth/logout", { method: "POST" });
+  await api("api/auth/logout", { method: "POST" });
   state.csrf = null;
   showLogin();
 });
@@ -267,13 +267,13 @@ document.getElementById("logout").addEventListener("click", async () => {
 
 document.getElementById("sync-toggle").addEventListener("click", async () => {
   if (!state.syncRunning) {
-    await api("/api/sync/start", { method: "POST" });
+    await api("api/sync/start", { method: "POST" });
   } else if (!state.syncPaused) {
-    await api("/api/sync/pause", { method: "POST" });
+    await api("api/sync/pause", { method: "POST" });
   } else {
-    await api("/api/sync/resume", { method: "POST" });
+    await api("api/sync/resume", { method: "POST" });
   }
-  const s = await api("/api/sync/status");
+  const s = await api("api/sync/status");
   state.syncRunning = s.running;
   state.syncPaused = s.paused;
   // The WS sync_status event will follow shortly; no direct call to
@@ -349,7 +349,7 @@ function updateSyncState(status) {
 }
 
 async function skipCurrentDownload() {
-  await api("/api/sync/skip", { method: "POST" });
+  await api("api/sync/skip", { method: "POST" });
 }
 
 window.addEventListener("hashchange", () => routeTo(location.hash));
@@ -415,7 +415,7 @@ function routeTo(hash) {
 // map, and drop any unsubmitted selections.
 //
 // This replaces an earlier 30s client-side poll that issued a full
-// `/api/archive/rescan` (walking the whole recordings tree) from every
+// `api/archive/rescan` (walking the whole recordings tree) from every
 // open tab — so N open archive clients meant N full rescans per tick.
 // The work is the server's to do once; the browser just reacts to it.
 // Trailing debounce: the derive worker emits `clip_derived` per clip, so a
@@ -635,7 +635,7 @@ document.getElementById("rescan").addEventListener("click", async () => {
   const btn = document.getElementById("rescan");
   btn.disabled = true; btn.textContent = "Scanning…";
   try {
-    await api("/api/archive/rescan", { method: "POST" });
+    await api("api/archive/rescan", { method: "POST" });
     await loadDays();
   } finally {
     btn.disabled = false; btn.textContent = "Rescan";
@@ -683,7 +683,7 @@ async function loadDays() {
   });
   archiveKindParams(q);
 
-  const data = await api("/api/archive/days?" + q);
+  const data = await api("api/archive/days?" + q);
   if (reqId !== state.daysRequestId) return; // superseded
   state.archiveStale = false;                // rendering fresh data
   const container = document.getElementById("days");
@@ -804,10 +804,10 @@ async function renderDayBody(body, date) {
   // it entirely when the user has the GPS-maps toggle off.
   let data, route;
   try {
-    const promises = [api(`/api/archive/day/${date}?` + q)];
+    const promises = [api(`api/archive/day/${date}?` + q)];
     if (state.showMaps) {
       promises.push(
-        api(`/api/archive/day/${date}/route`
+        api(`api/archive/day/${date}/route`
             + (state.filters.geofenced ? "?show_geofenced=true" : ""))
           .catch((e) => { console.warn("route failed", e); return null; }),
       );
@@ -990,7 +990,7 @@ async function resolveGeocode(lat, lon) {
   const p = (async () => {
     try {
       const r = await api(
-        `/api/archive/geocode?lat=${lat}&lon=${lon}`,
+        `api/archive/geocode?lat=${lat}&lon=${lon}`,
       );
       _geocodeCache.set(k, r.label || null);
       return r.label || null;
@@ -1496,7 +1496,7 @@ function renderClipPair(pair) {
     }
     return c ? `<div class="thumb" data-camera="${cam}"
                data-clip-id="${c.id}" data-ts="${pair.timestamp}">
-        <img src="/api/archive/clip/${c.id}/thumb" data-id="${c.id}"
+        <img src="api/archive/clip/${c.id}/thumb" data-id="${c.id}"
              alt="" loading="lazy" decoding="async" />
         <div class="film-scrub" aria-hidden="true"></div>
         <div class="label" title="${escHtml(c.basename)}">${escHtml(c.basename)}</div>
@@ -1557,7 +1557,7 @@ function renderClipPair(pair) {
     if (!overlay) return;
     wireLazyFilmstripScrub(
       overlay, thumbEl,
-      (signal) => api(`/api/archive/clip/${id}/filmstrip`, { signal }));
+      (signal) => api(`api/archive/clip/${id}/filmstrip`, { signal }));
   });
 
   // Selection checkbox → export set. Preserve selected state
@@ -1752,7 +1752,7 @@ function downloadOriginals(slot) {
   ids.forEach((id, i) => {
     setTimeout(() => {
       const a = document.createElement("a");
-      a.href = `/api/archive/clip/${id}/video`;
+      a.href = `api/archive/clip/${id}/video`;
       // No download attr: rely on the server's Content-Disposition
       // filename (the original basename) rather than the URL tail.
       document.body.appendChild(a);
@@ -1784,7 +1784,7 @@ async function submitExport(type) {
     // Encoder is no longer chosen per-export — the backend uses
     // EXPORT_ENCODER from settings (defaults to "auto" which
     // probes for the best working hardware option at boot).
-    await api("/api/exports", {
+    await api("api/exports", {
       method: "POST",
       body: JSON.stringify({ type, clip_ids: ids }),
     });
@@ -1883,8 +1883,8 @@ function selectionHasCamera(cam) {
 }
 
 const QUEUE_ENDPOINT = {
-  "download-next": "/api/queue/download-next",
-  "skip": "/api/queue/skip",
+  "download-next": "api/queue/download-next",
+  "skip": "api/queue/skip",
 };
 
 async function runQueueAction(action, filenames) {
@@ -1896,8 +1896,8 @@ async function runQueueAction(action, filenames) {
     let res;
     if (action === "retry") {
       // Retry also clears any user/geofence skip on the selection first.
-      await api("/api/queue/unskip", { method: "POST", body: JSON.stringify({ filenames }) });
-      res = await api("/api/queue/retry", { method: "POST", body: JSON.stringify({ filenames }) });
+      await api("api/queue/unskip", { method: "POST", body: JSON.stringify({ filenames }) });
+      res = await api("api/queue/retry", { method: "POST", body: JSON.stringify({ filenames }) });
     } else {
       const endpoint = QUEUE_ENDPOINT[action];
       if (!endpoint) { toast(`Unknown action: ${action}`, { type: "error" }); return; }
@@ -1925,7 +1925,7 @@ function deleteResultToast(res) {
 async function runQueueDelete(filenames) {
   try {
     await animateOutSelectedPairs();
-    const res = await api("/api/queue/delete", { method: "POST", body: JSON.stringify({ filenames }) });
+    const res = await api("api/queue/delete", { method: "POST", body: JSON.stringify({ filenames }) });
     // Confirm-through for protected clips: the first call already deleted
     // everything deletable, so ask once more and force-delete exactly the
     // refused names. Declining keeps them — the reload below restores
@@ -1936,7 +1936,7 @@ async function runQueueDelete(filenames) {
         `(dashcam event recordings, or clips marked read-only). Delete them anyway?`,
       );
       if (ok) {
-        const forced = await api("/api/queue/delete", {
+        const forced = await api("api/queue/delete", {
           method: "POST",
           body: JSON.stringify({ filenames: res.protected_names, force: true }),
         });
@@ -1986,7 +1986,7 @@ async function applyClipAction() {
   if (action === "mark-ro" || action === "clear-ro") {
     const lock = action === "mark-ro";
     try {
-      const res = await api(lock ? "/api/queue/lock" : "/api/queue/unlock",
+      const res = await api(lock ? "api/queue/lock" : "api/queue/unlock",
         { method: "POST", body: JSON.stringify({ filenames }) });
       toast(lock ? `Marked ${res.updated} read-only`
                  : `Cleared read-only on ${res.updated}`);
@@ -2017,7 +2017,7 @@ updateArchiveActions();
 
 async function refreshExportJobs() {
   try {
-    const r = await api("/api/exports");
+    const r = await api("api/exports");
     renderExportJobs(r.jobs || []);
   } catch (e) { /* non-fatal */ }
 }
@@ -2299,7 +2299,7 @@ function renderExportJobs(jobs) {
     // download — so the bin stays pinned to the right and never
     // jumps across as jobs finish.
     const dl = j.state === "done"
-      ? `<a class="export-action" href="/api/exports/${j.id}/download" ` +
+      ? `<a class="export-action" href="api/exports/${j.id}/download" ` +
         `download title="Download" aria-label="Download export">` +
         `${EXPORT_ICON_DOWNLOAD}</a>`
       : `<span class="export-action export-action--empty" ` +
@@ -2373,13 +2373,13 @@ function renderExportJobs(jobs) {
   el.querySelectorAll(".export-thumb.film-scrub[data-job-id]").forEach((thumb) => {
     applyFilmstripScrub(
       thumb,
-      `/api/exports/${thumb.dataset.jobId}/filmstrip.jpg`,
+      `api/exports/${thumb.dataset.jobId}/filmstrip.jpg`,
       EXPORT_FILMSTRIP_FRAMES);
   });
   el.querySelectorAll(".export-delete").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("Delete this export job and its output?")) return;
-      await api(`/api/exports/${btn.dataset.id}`, { method: "DELETE" });
+      await api(`api/exports/${btn.dataset.id}`, { method: "DELETE" });
       refreshExportJobs();
     });
   });
@@ -2387,7 +2387,7 @@ function renderExportJobs(jobs) {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       try {
-        await api(`/api/exports/${btn.dataset.id}/${btn.dataset.act}`,
+        await api(`api/exports/${btn.dataset.id}/${btn.dataset.act}`,
                   { method: "POST" });
       } catch (err) {
         // 409 if the job moved on (finished/failed) between render and click.
@@ -2431,7 +2431,7 @@ function openVideo(clipId, camera, sourceEl, opts = {}) {
   state.modalClip = { id: clipId, camera, dayEl, timelines };
 
   const body = document.getElementById("modal-body");
-  body.innerHTML = `<video src="/api/archive/clip/${clipId}/video"
+  body.innerHTML = `<video src="api/archive/clip/${clipId}/video"
                            controls ${autoplay ? "autoplay" : ""}></video>`;
   const video = body.querySelector("video");
   if (seekTo > 0 && video) {
@@ -2458,7 +2458,7 @@ function openExportVideo(jobId) {
   state.modalClip = null;
   document.querySelector(".modal-nav").hidden = true;
   document.getElementById("modal-body").innerHTML =
-    `<video src="/api/exports/${jobId}/video" controls autoplay></video>`;
+    `<video src="api/exports/${jobId}/video" controls autoplay></video>`;
   document.getElementById("modal").hidden = false;
 }
 
@@ -2666,7 +2666,7 @@ async function loadQueue() {
   const requestId = ++state.queueRequestId;
   const q = new URLSearchParams();
   queueKindParams(q);
-  const data = await api("/api/queue/days?" + q);
+  const data = await api("api/queue/days?" + q);
   if (requestId !== state.queueRequestId) return;
   state.queueDays = data.days;
   // Prune selections and per-day caches for days that no longer exist.
@@ -2691,7 +2691,7 @@ async function loadQueue() {
 async function loadDayItems(day, { silent = false } = {}) {
   const q = new URLSearchParams();
   queueKindParams(q);
-  const data = await api(`/api/queue/day/${day}?` + q);
+  const data = await api(`api/queue/day/${day}?` + q);
   state.queueDayItems[day] = data.items;
   if (!silent) renderQueue();
 }
@@ -3111,19 +3111,19 @@ wireKindCheckbox("q-kind-ro", "ro");
 // the backend WHERE clause filters to the applicable source state, so a mixed
 // selection is fine and `updated` reports how many actually changed.
 const QUEUE_ACTIONS = {
-  "download-next": { url: "/api/queue/prioritize",
+  "download-next": { url: "api/queue/prioritize",
                      body: (f) => ({ filenames: f, position: "top" }),
                      label: "moved to front" },
-  "skip":          { url: "/api/queue/skip",
+  "skip":          { url: "api/queue/skip",
                      body: (f) => ({ filenames: f }), label: "skipped" },
-  "clear-skip":    { url: "/api/queue/unskip",
+  "clear-skip":    { url: "api/queue/unskip",
                      body: (f) => ({ filenames: f }), label: "un-skipped" },
-  "retry-failed":  { url: "/api/queue/retry",
+  "retry-failed":  { url: "api/queue/retry",
                      body: (f) => ({ filenames: f }), label: "re-queued" },
-  "mark-ro":       { url: "/api/queue/lock",
+  "mark-ro":       { url: "api/queue/lock",
                      body: (f) => ({ filenames: f }), label: "marked read-only" },
   "delete-from-camera": {
-    url: "/api/queue/delete-from-camera",
+    url: "api/queue/delete-from-camera",
     body: (f) => ({ filenames: f }),
     confirm: (n) =>
       `Delete ${n} clip(s) from the dashcam SD card? This cannot be undone.`,
@@ -3192,7 +3192,7 @@ document.getElementById("q-prio-recent").addEventListener("click", async () => {
   const btn = document.getElementById("q-prio-recent");
   btn.disabled = true;
   try {
-    const r = await api("/api/queue/prioritize-recent", {
+    const r = await api("api/queue/prioritize-recent", {
       method: "POST",
       body: JSON.stringify({ hours }),
     });
@@ -3313,7 +3313,7 @@ async function loadLogs() {
   list.innerHTML = "";
   let entries = [];
   try {
-    entries = (await api(`/api/logs?${logsQueryString(f)}`)).entries;
+    entries = (await api(`api/logs?${logsQueryString(f)}`)).entries;
   } catch { return; }
   if (!entries.length) {
     const empty = document.createElement("div");
@@ -3338,7 +3338,7 @@ async function loadOlderLogs() {
   const qs = logsQueryString(f, { before: String(state.logsOldestId) });
   const older = document.getElementById("logs-older");
   let entries = [];
-  try { entries = (await api(`/api/logs?${qs}`)).entries; }
+  try { entries = (await api(`api/logs?${qs}`)).entries; }
   catch { return; }
   const list = document.getElementById("logs-list");
   for (const e of entries) list.appendChild(renderLogRow(e));
@@ -3400,7 +3400,9 @@ function openSocket() {
     try { state.ws.close(); } catch {}
   }
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${proto}//${location.host}/api/progress`);
+  const wsUrl = new URL("api/progress", document.baseURI);
+  wsUrl.protocol = proto;
+  const ws = new WebSocket(wsUrl.href);
   state.ws = ws;
   ws.addEventListener("open", () => {
     wsRetryDelayMs = 3000; // healthy again — reset the backoff ladder
@@ -3674,7 +3676,7 @@ const settingsState = {
 async function loadSettings() {
   const pane = document.getElementById("settings-pane");
   try {
-    const body = await api("/api/settings");
+    const body = await api("api/settings");
     settingsState.current = body.editable;
     settingsState.readonly = body.readonly;
     settingsState.restart_required = body.restart_required_keys || [];
@@ -3906,7 +3908,7 @@ function renderConnectionCard(which) {
   test.addEventListener("click", async () => {
     result.textContent = "Testing…";
     try {
-      const j = await api("/api/settings/test-dashcam", {
+      const j = await api("api/settings/test-dashcam", {
         method: "POST",
         body: JSON.stringify({ address: inp.value }),
       });
@@ -3951,7 +3953,7 @@ function renderConnectionCard(which) {
     const otherScope = (valueOf(otherCfg.addressKey) || "").trim()
       ? valueOf(otherCfg.scopeKey) : null;
     try {
-      let url = "/api/queue/scope-preview?scope=" + encodeURIComponent(value);
+      let url = "api/queue/scope-preview?scope=" + encodeURIComponent(value);
       if (otherScope) url += "&other_scope=" + encodeURIComponent(otherScope);
       const j = await api(url);
       if (scope.value !== value) return;   // stale response
@@ -4092,7 +4094,7 @@ function renderGpsMaintenance(pane) {
     const label = btn.textContent;
     btn.textContent = "Re-evaluating…";
     try {
-      const r = await api("/api/archive/rebuild-grouping", { method: "POST" });
+      const r = await api("api/archive/rebuild-grouping", { method: "POST" });
       toast(`Re-evaluated: ${r.unskipped} un-skipped, ${r.reskipped} re-skipped.`);
     } catch (e) {
       toast(`Re-evaluate failed: ${e.message || e}`, { type: "error" });
@@ -4480,7 +4482,7 @@ async function refreshStorageUsage(card) {
   if (!card || !card.isConnected) return;
   let body;
   try {
-    body = await api("/api/storage/usage");
+    body = await api("api/storage/usage");
   } catch (_) {
     return;
   }
@@ -4568,7 +4570,7 @@ function renderSecuritySection(pane) {
     const result = document.getElementById("pw-result");
     if (nw !== cf) { result.textContent = "Passwords don't match"; return; }
     try {
-      await api("/api/settings/password", {
+      await api("api/settings/password", {
         method: "POST",
         body: JSON.stringify({ current: cur, new_password: nw, logout_others: lo }),
       });
@@ -4579,7 +4581,7 @@ function renderSecuritySection(pane) {
   });
   document.getElementById("rotate-secret").addEventListener("click", async () => {
     if (!confirm("Rotate the session secret? You will be logged out.")) return;
-    await api("/api/auth/logout", { method: "POST" });
+    await api("api/auth/logout", { method: "POST" });
     window.location.reload();
   });
 }
@@ -4611,7 +4613,7 @@ function renderSystemSection(pane) {
   `;
   document.getElementById("restart-now").addEventListener("click", async () => {
     if (!confirm("Restart the container now? Active downloads will be re-queued.")) return;
-    await api("/api/settings/restart", { method: "POST" });
+    await api("api/settings/restart", { method: "POST" });
     document.body.innerHTML = "<h1>Restarting…</h1><p>The page will reload in 5 seconds.</p>";
     setTimeout(() => window.location.reload(), 5000);
   });
@@ -4621,7 +4623,7 @@ function renderSystemSection(pane) {
     debugBtn.disabled = true;
     debugStatus.textContent = "Gathering — may take up to a minute if the camera is slow…";
     try {
-      const resp = await ifetch("/api/debug-bundle");
+      const resp = await ifetch("api/debug-bundle");
       // The pane may have been re-rendered (user navigated away) while we
       // were waiting on the network — don't write into a detached node.
       if (!debugStatus.isConnected) return;
@@ -4663,7 +4665,7 @@ async function refreshMqttStatus() {
   const el = document.getElementById("mqtt-status");
   if (!el) { clearInterval(_mqttStatusTimer); _mqttStatusTimer = null; return; }
   try {
-    const body = await api("/api/mqtt/status");
+    const body = await api("api/mqtt/status");
     const dot  = el.querySelector(".dot");
     const text = el.querySelector(".mqtt-status-text");
     dot.className = "dot " + ({
@@ -4732,7 +4734,7 @@ function renderMqttSection(pane) {
         tls:       !!valueOf("MQTT_TLS"),
         client_id: valueOf("MQTT_CLIENT_ID"),
       };
-      const result = await api("/api/mqtt/test", {
+      const result = await api("api/mqtt/test", {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -4778,7 +4780,7 @@ const settingsSave = document.getElementById("settings-save");
 if (settingsSave) {
   settingsSave.addEventListener("click", async () => {
     try {
-      const body = await api("/api/settings", {
+      const body = await api("api/settings", {
         method: "PUT",
         body: JSON.stringify(settingsState.pending),
       });
@@ -4817,9 +4819,9 @@ window.addEventListener("hashchange", () => {
 
 (async () => {
   try {
-    await fetch("/api/auth/me", { credentials: "same-origin" })
+    await fetch("api/auth/me", { credentials: "same-origin" })
       .then((r) => { if (!r.ok) throw 0; });
-    const cr = await fetch("/api/auth/csrf", { credentials: "same-origin" });
+    const cr = await fetch("api/auth/csrf", { credentials: "same-origin" });
     state.csrf = (await cr.json()).csrf;
     showApp();
   } catch {
@@ -4947,7 +4949,7 @@ window.addEventListener("hashchange", () => {
     let queue = picked;
     try {
       $("import-status").textContent = "Checking for clips already imported…";
-      const r = await ifetch("/api/import/present", {
+      const r = await ifetch("api/import/present", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -4973,7 +4975,7 @@ window.addEventListener("hashchange", () => {
       $("import-bar").style.width = `${(i / queue.length) * 100}%`;
       let res;
       try {
-        const r = await ifetch("/api/import/upload", {
+        const r = await ifetch("api/import/upload", {
           method: "POST",
           credentials: "same-origin",
           headers: {
@@ -4997,14 +4999,14 @@ window.addEventListener("hashchange", () => {
       tally[key] = (tally[key] || 0) + 1;
     }
     $("import-bar").style.width = "100%";
-    await ifetch("/api/archive/rescan", { method: "POST" });
+    await ifetch("api/archive/rescan", { method: "POST" });
     renderSummary(tally);
   });
 
   // --- Folder tab ---
   $("import-folder-scan").addEventListener("click", async () => {
     const path = $("import-folder-path").value.trim() || null;
-    const r = await ifetch("/api/import/scan", {
+    const r = await ifetch("api/import/scan", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -5031,7 +5033,7 @@ window.addEventListener("hashchange", () => {
     const path = e.target.dataset.path || null;
     show($("import-progress")); hide($("import-summary"));
     $("import-status").textContent = "Starting…";
-    const r = await ifetch("/api/import/ingest", {
+    const r = await ifetch("api/import/ingest", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -5226,8 +5228,8 @@ async function refreshCamera() {
 
   let info, cat;
   try {
-    info = await api("/api/camera/info");
-    cat = await api("/api/camera/settings/catalog");
+    info = await api("api/camera/info");
+    cat = await api("api/camera/settings/catalog");
   } catch (e) {
     // Keep showing the cached snapshot (controls stay disabled) rather than
     // blanking the page when the camera is briefly unreachable.
@@ -5361,7 +5363,7 @@ async function onCameraSettingChange(e) {
   st.className = "cam-row-status pending";
   st.textContent = "Applying…";
   try {
-    const r = await api(`/api/camera/settings/${encodeURIComponent(key)}`, {
+    const r = await api(`api/camera/settings/${encodeURIComponent(key)}`, {
       method: "POST",
       body: JSON.stringify({ value }),
     });

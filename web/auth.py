@@ -18,6 +18,7 @@ Design:
 
 from __future__ import annotations
 
+import os
 import time
 from collections import deque
 from typing import Deque, Dict, Optional
@@ -31,6 +32,11 @@ SESSION_MAX_AGE = 14 * 24 * 3600   # 14 days
 CSRF_MAX_AGE = 4 * 3600            # 4 hours
 LOGIN_WINDOW_SECONDS = 60
 LOGIN_MAX_ATTEMPTS = 5
+
+
+def auth_disabled() -> bool:
+    """DISABLE_AUTH=1 turns off login/CSRF (e.g. behind HA ingress)."""
+    return os.environ.get("DISABLE_AUTH", "").strip().lower() in ("1", "true", "yes")
 
 
 class Auth:
@@ -131,6 +137,8 @@ class Auth:
         response.delete_cookie(SESSION_COOKIE, path="/")
 
     def validate_session(self, token: Optional[str]) -> bool:
+        if auth_disabled():
+            return True
         if not token:
             return False
         try:
@@ -150,6 +158,8 @@ class Auth:
     def validate_csrf(
         self, csrf_token: Optional[str], session_token: Optional[str]
     ) -> bool:
+        if auth_disabled():
+            return True
         if not csrf_token or not session_token:
             return False
         try:

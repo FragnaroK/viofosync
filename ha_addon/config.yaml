@@ -7,6 +7,10 @@ arch:
   - amd64
   - aarch64
 init: false
+options:
+  disable_auth: true
+schema:
+  disable_auth: bool
 startup: application
 boot: auto
 # Reaching the dashcam over its Wi-Fi AP needs the host network.
@@ -19,7 +23,12 @@ map:
   - type: media
     path: /recordings
     read_only: false
-# Web UI port (8080 on the host network).
+# Web UI embedded in the HA sidebar via ingress (served on 8080).
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:car-back
+panel_title: Viofosync
+# Direct access stays available on the host network.
 webui: "http://[HOST]:8080"
 # Uncomment for Intel iGPU hardware-accelerated exports.
 # devices:

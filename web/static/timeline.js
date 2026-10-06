@@ -70,7 +70,7 @@
       : `?date=${date}`;
     let data;
     try {
-      data = await api(`/api/archive/timeline${q}`);
+      data = await api(`api/archive/timeline${q}`);
     } catch (err) {
       el("tl-title").textContent = "Timeline — failed to load";
       console.error("timeline load failed", err);
@@ -81,7 +81,7 @@
     // overlay. Best-effort: a failed/missing setting keeps the top_right
     // default. Refreshed each open, so a settings change applies on reload.
     try {
-      const s = await api("/api/settings");
+      const s = await api("api/settings");
       state.pipPosition = (s.editable && s.editable.PIP_POSITION) || "top_right";
     } catch { /* keep the default corner */ }
     state.channels = data.channels || [];
@@ -264,13 +264,13 @@
     // Instant placeholder: the clip's cached thumbnail, dimmed with a loading
     // shimmer, shown immediately while the (slower-to-generate) filmstrip
     // sprite is produced. The shimmer fades away to reveal the real strip.
-    block.style.backgroundImage = `url(/api/archive/clip/${id}/thumb)`;
+    block.style.backgroundImage = `url(api/archive/clip/${id}/thumb)`;
     block.style.backgroundSize = "100% 100%";
     block.classList.add("tl-ph", "loading");
 
     try {
       const meta = await runFilmstrip(
-        () => api(`/api/archive/clip/${id}/filmstrip`));
+        () => api(`api/archive/clip/${id}/filmstrip`));
       if (meta && meta.sprite_url) {
         // Stretch the whole N-frame sprite across the block so frame
         // position maps to time (scrub-accurate) and zooming in
@@ -463,7 +463,7 @@
     host.innerHTML = "";
     const video = document.createElement("video");
     video.dataset.clipId = hit.clip.id;
-    video.src = `/api/archive/clip/${hit.clip.id}/video`;
+    video.src = `api/archive/clip/${hit.clip.id}/video`;
     video.controls = false;
     video.playsInline = true;
     // A fresh <video> emits a timeupdate at currentTime≈0 *before* its
@@ -1049,7 +1049,7 @@
   // ---- export ----
   async function postExport(body) {
     try {
-      const r = await api("/api/exports", {
+      const r = await api("api/exports", {
         method: "POST", body: JSON.stringify(body),
       });
       toast(`Export queued — job #${r.job_id}`, {

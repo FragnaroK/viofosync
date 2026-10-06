@@ -34,10 +34,10 @@ def test_index_rewrites_static_urls_with_mtime(
 
         # Asset references should now carry a numeric ?v= stamp.
         assert re.search(
-            r'/static/app\.js\?v=\d+', html
+            r'static/app\.js\?v=\d+', html
         ), "app.js URL is missing the cache-bust stamp"
         assert re.search(
-            r'/static/styles\.css\?v=\d+', html
+            r'static/styles\.css\?v=\d+', html
         ), "styles.css URL is missing the cache-bust stamp"
 
         # And the HTML itself should be served no-cache so the

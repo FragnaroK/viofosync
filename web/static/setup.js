@@ -36,7 +36,7 @@
     if (!v) { testResult.textContent = "Enter an address first"; testResult.className = "hint bad"; return; }
     testResult.textContent = "Testing…"; testResult.className = "hint";
     try {
-      const r = await fetch("/api/setup/test-dashcam", {
+      const r = await fetch("api/setup/test-dashcam", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: v }),
@@ -54,9 +54,9 @@
     ev.preventDefault();
     errorBox.hidden = true;
     const fd = new FormData(form);
-    const r = await fetch("/setup", { method: "POST", body: fd, redirect: "manual" });
+    const r = await fetch("setup", { method: "POST", body: fd, redirect: "manual" });
     if (r.status === 303 || r.type === "opaqueredirect") {
-      window.location.href = "/";
+      window.location.href = document.baseURI;
     } else {
       const text = await r.text();
       errorBox.hidden = false;

@@ -18,7 +18,7 @@ import os
 import time
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -26,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from . import settings as settings_mod
 from . import version as version_mod
 from .auth import Auth
+from .ingress import inject_base
 from .db import (
     Database,
     default_db_path,
@@ -463,7 +464,7 @@ def create_app() -> FastAPI:
         # a redeploy — we hit this every release. Index itself is
         # served no-cache so the rewritten URLs reach the user.
         @app.get("/", response_class=Response)
-        def index() -> Response:
+        def index(request: Request) -> Response:
             html_path = os.path.join(STATIC_DIR, "index.html")
             with open(html_path, encoding="utf-8") as f:
                 html = f.read()
@@ -474,8 +475,8 @@ def create_app() -> FastAPI:
                 except OSError:
                     continue
                 html = html.replace(
-                    f"/static/{asset}",
-                    f"/static/{asset}?v={stamp}",
+                    f"static/{asset}",
+                    f"static/{asset}?v={stamp}",
                 )
 
             # Surface the instance label pre-auth so multi-instance
@@ -501,7 +502,7 @@ def create_app() -> FastAPI:
                 )
 
             return Response(
-                content=html,
+                content=inject_base(request, html),
                 media_type="text/html",
                 headers={
                     "Cache-Control": "no-cache, no-store, must-revalidate",
