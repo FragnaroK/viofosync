@@ -71,7 +71,7 @@ def test_button_entries_present():
                   if e.component == "button"}
     assert button_ids == {
         "start_sync", "pause_sync", "skip_current",
-        "refresh_queue", "retry_failed", "rescan_archive",
+        "refresh_queue", "retry_failed", "rescan_archive", "resume_sync",
     }
 
 
@@ -93,7 +93,7 @@ def test_command_handler_present_only_on_buttons():
     from web.services.mqtt_topology import TOPOLOGY
     for e in TOPOLOGY:
         if e.command_handler is not None:
-            assert e.component == "button", e.object_id
+            assert e.component in ("button", "switch"), e.object_id
 
 
 def test_sync_status_entity_lists_new_affected_events():

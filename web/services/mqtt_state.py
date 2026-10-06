@@ -228,3 +228,201 @@ def state_disk_used(hub, db, snapshot) -> Optional[str]:
     return str(int(round(max(candidates))))
 
 
+# ---- sync switch
+
+def state_sync_switch(hub, db, snapshot) -> Optional[str]:
+    """ON while the worker is running and not paused."""
+    ss = hub.last_state.get("sync_state")
+    if not ss:
+        return None
+    return "ON" if ss.get("running") and not ss.get("paused") else "OFF"
+
+
+# ---- extra queue / session sensors
+
+def state_queue_gone(hub, db, snapshot) -> Optional[str]:
+    return str(_queue_count(db, "gone"))
+
+
+def state_queue_skipped(hub, db, snapshot) -> Optional[str]:
+    return str(_queue_count(db, "skipped"))
+
+
+def state_queue_remaining(hub, db, snapshot) -> Optional[str]:
+    """GB still to download (pending + downloading)."""
+    with db.conn() as c:
+        row = c.execute(
+            "SELECT COALESCE(SUM(remote_size), 0) AS b FROM download_queue "
+            "WHERE state IN ('pending', 'downloading')"
+        ).fetchone()
+    return f"{row['b'] / 1e9:.2f}"
+
+
+def state_download_eta(hub, db, snapshot) -> Optional[str]:
+    """Minutes until the queue drains at the session's average speed."""
+    sess = hub.last_state.get("session") or {}
+    if not sess.get("active"):
+        return "0"
+    eta = sess.get("eta_seconds")
+    if eta is None:
+        return None
+    return f"{eta / 60:.0f}"
+
+
+def state_session_downloaded(hub, db, snapshot) -> Optional[str]:
+    sess = hub.last_state.get("session") or {}
+    if not sess.get("active"):
+        return "0"
+    return str(int((sess.get("session_bytes") or 0) / 1e6))
+
+
+# ---- camera (polled over HTTP, cached so the camera isn't hammered)
+
+CAMERA_TTL_S = 300.0
+_camera_cache: dict = {"at": 0.0, "addr": None, "data": None}
+
+
+def _camera(hub, snapshot) -> Optional[dict]:
+    """Last known ``{"info": ..., "recording": 0|1|None}`` from the camera.
+
+    Refreshes at most every ``CAMERA_TTL_S``, only while the camera is online
+    and no download is running, so the poll never competes with a transfer.
+    """
+    import time as _time
+    from viofosync_lib import _control as control
+
+    cache = _camera_cache
+    if hub.last_state.get("dashcam_online") is not True:
+        return cache["data"]
+    addr = hub.last_state.get("dashcam_address") or snapshot.address
+    if not addr:
+        return cache["data"]
+    fresh = (
+        cache["addr"] == addr
+        and _time.monotonic() - cache["at"] < CAMERA_TTL_S
+    )
+    if fresh or hub.last_state.get("current_item"):
+        return cache["data"]
+    try:
+        info = control.read_info(addr)
+    except Exception:
+        return cache["data"]
+    cache.update(
+        at=_time.monotonic(), addr=addr,
+        data={"info": info, "recording": control.record_state(addr)},
+    )
+    return cache["data"]
+
+
+def state_camera_recording(hub, db, snapshot) -> Optional[str]:
+    d = _camera(hub, snapshot)
+    if not d or d["recording"] is None:
+        return None
+    return "ON" if d["recording"] else "OFF"
+
+
+def state_camera_sd_free(hub, db, snapshot) -> Optional[str]:
+    d = _camera(hub, snapshot)
+    free = d and d["info"].get("free_space_bytes")
+    if not isinstance(free, int):
+        return None
+    return f"{free / 1e9:.1f}"
+
+
+def state_camera_sd_status(hub, db, snapshot) -> Optional[str]:
+    d = _camera(hub, snapshot)
+    return (d and d["info"].get("card_status_label")) or None
+
+
+def state_camera_firmware(hub, db, snapshot) -> Optional[str]:
+    d = _camera(hub, snapshot)
+    return (d and d["info"].get("firmware")) or None
+
+
+# ---- last journey
+
+_journey_cache: dict = {"key": None, "value": None}
+
+
+def _last_journey(db, snapshot) -> Optional[dict]:
+    """Newest detected journey from the last few GPS-bearing days."""
+    from .naming import day_key_sql
+
+    with db.conn() as c:
+        rows = c.execute(
+            f"SELECT {day_key_sql('basename')} AS d, MAX(timestamp) AS t "
+            "FROM clip_index WHERE has_gpx = 1 "
+            "GROUP BY d ORDER BY d DESC LIMIT 3"
+        ).fetchall()
+    if not rows:
+        return None
+    key = (snapshot.recordings, tuple((r["d"], r["t"]) for r in rows))
+    if _journey_cache["key"] == key:
+        return _journey_cache["value"]
+
+    from ..routers.archive import build_route_payload
+
+    found = None
+    for r in rows:
+        payload = build_route_payload(
+            db, snapshot.recordings, r["d"], None,
+            getattr(snapshot, "locations", ()),
+        )
+        journeys = payload.get("journeys") or []
+        if journeys:
+            found = journeys[-1]
+            break
+    _journey_cache.update(key=key, value=found)
+    return found
+
+
+def state_last_journey(hub, db, snapshot) -> Optional[str]:
+    j = _last_journey(db, snapshot)
+    return _iso_z(int(j["end_ts"])) if j else None
+
+
+def attrs_last_journey(hub, db, snapshot) -> Optional[dict]:
+    j = _last_journey(db, snapshot)
+    if not j:
+        return None
+    return {
+        "start_time": _iso_z(int(j["start_ts"])),
+        "start_label": j.get("start_label"),
+        "end_label": j.get("end_label"),
+        "start_lat": j["start_lat"], "start_lon": j["start_lon"],
+        "end_lat": j["end_lat"], "end_lon": j["end_lon"],
+        "distance_km": round(j["distance_m"] / 1000, 2),
+        "duration_min": round(j["duration_s"] / 60, 1),
+    }
+
+
+def state_last_journey_distance(hub, db, snapshot) -> Optional[str]:
+    j = _last_journey(db, snapshot)
+    return f"{j['distance_m'] / 1000:.2f}" if j else None
+
+
+def state_last_journey_duration(hub, db, snapshot) -> Optional[str]:
+    j = _last_journey(db, snapshot)
+    return f"{j['duration_s'] / 60:.0f}" if j else None
+
+
+# ---- activity events (non-retained, fired per hub event)
+
+def activity_event(event: dict) -> Optional[dict]:
+    """Map a hub event to an HA ``event`` entity payload, or None."""
+    t = event.get("type")
+    if t == "item_finished":
+        if event.get("ok"):
+            return {"event_type": "clip_downloaded",
+                    "filename": event.get("filename"),
+                    "bytes": event.get("bytes")}
+        return {"event_type": "download_failed",
+                "filename": event.get("filename"),
+                "error": event.get("error")}
+    if t == "sync_error" and event.get("kind"):
+        kind = event["kind"]
+        return {"event_type": "disk_full" if kind == "disk_full" else "sync_error",
+                "kind": kind, "message": event.get("message")}
+    return None
+
+

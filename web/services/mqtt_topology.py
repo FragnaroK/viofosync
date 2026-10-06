@@ -46,7 +46,10 @@ class EntityDef:
     # high-rate entities (e.g. current_progress) to QoS=0 so PUBACK
     # latency from the broker can't stall the publisher.
     qos: Optional[int] = None
-
+    # Merged into the discovery payload (e.g. switch payloads, event_types).
+    discovery_extra: dict = field(default_factory=dict)
+    # Re-published every 60 s by the service tick (poll-sourced entities).
+    poll: bool = False
 
 def build_state_topic(object_id: str, cfg: dict) -> str:
     return f"{cfg['node_id']}/{object_id}/state"
@@ -102,11 +105,11 @@ def build_discovery_payload(entity: EntityDef, cfg: dict) -> dict:
         "enabled_by_default": entity.enabled_by_default,
         "device": _device_manifest(cfg),
     }
-    if entity.component in ("sensor", "binary_sensor"):
+    if entity.component in ("sensor", "binary_sensor", "switch", "event"):
         payload["state_topic"] = build_state_topic(entity.object_id, cfg)
     if entity.component in ("sensor", "binary_sensor") and entity.attrs_fn is not None:
         payload["json_attributes_topic"] = build_attrs_topic(entity.object_id, cfg)
-    if entity.component == "button":
+    if entity.component in ("button", "switch"):
         payload["command_topic"] = build_command_topic(entity.object_id, cfg)
     if entity.icon:
         payload["icon"] = entity.icon
@@ -116,6 +119,7 @@ def build_discovery_payload(entity: EntityDef, cfg: dict) -> dict:
         payload["state_class"] = entity.state_class
     if entity.unit_of_measurement:
         payload["unit_of_measurement"] = entity.unit_of_measurement
+    payload.update(entity.discovery_extra)
     return payload
 
 
@@ -378,6 +382,81 @@ TOPOLOGY.extend([
 ])
 
 
+def _e(object_id, component, name, icon, state_fn, *, events=(), interval=1.0,
+       device_class=None, state_class=None, unit=None, enabled=True,
+       handler=None, attrs_fn=None, poll=False, extra=None) -> EntityDef:
+    return EntityDef(
+        object_id=object_id, component=component, name=name, icon=icon,
+        device_class=device_class, state_class=state_class,
+        unit_of_measurement=unit, enabled_by_default=enabled,
+        min_publish_interval_s=interval, state_fn=state_fn,
+        command_handler=handler, affected_by_hub_events=tuple(events),
+        attrs_fn=attrs_fn, poll=poll, discovery_extra=extra or {},
+    )
+
+
+TOPOLOGY.extend([
+    _e("sync_enabled", "switch", "Sync", "mdi:sync", _st.state_sync_switch,
+       events=("sync_state",), interval=0.0, handler=_pending_command,
+       extra={"payload_on": "ON", "payload_off": "OFF",
+              "state_on": "ON", "state_off": "OFF"}),
+    _e("resume_sync", "button", "Resume sync", "mdi:play-pause", None,
+       interval=0.0, handler=_pending_command),
+
+    _e("queue_gone", "sensor", "Queue gone", "mdi:cloud-off-outline",
+       _st.state_queue_gone, events=("queue_changed",),
+       state_class="measurement", enabled=False),
+    _e("queue_skipped", "sensor", "Queue skipped", "mdi:skip-next-circle-outline",
+       _st.state_queue_skipped, events=("queue_changed",),
+       state_class="measurement", enabled=False),
+    _e("queue_remaining", "sensor", "Queue remaining", "mdi:database-arrow-down",
+       _st.state_queue_remaining, events=("queue_changed", "item_finished"),
+       interval=30.0, device_class="data_size", state_class="measurement",
+       unit="GB"),
+    _e("download_eta", "sensor", "Download ETA", "mdi:timer-sand",
+       _st.state_download_eta, events=("item_progress", "item_finished", "sync_done"),
+       interval=60.0, device_class="duration", state_class="measurement",
+       unit="min"),
+    _e("session_downloaded", "sensor", "Session downloaded",
+       "mdi:download-multiple", _st.state_session_downloaded,
+       events=("item_progress", "item_finished", "sync_done"), interval=60.0,
+       device_class="data_size", state_class="measurement", unit="MB",
+       enabled=False),
+
+    _e("camera_recording", "binary_sensor", "Camera recording",
+       "mdi:record-rec", _st.state_camera_recording,
+       events=("dashcam_online", "dashcam_offline"),
+       device_class="running", poll=True),
+    _e("camera_sd_free", "sensor", "Camera SD free", "mdi:sd",
+       _st.state_camera_sd_free, events=("dashcam_online",), interval=60.0,
+       device_class="data_size", state_class="measurement", unit="GB",
+       poll=True),
+    _e("camera_sd_status", "sensor", "Camera SD status", "mdi:sd",
+       _st.state_camera_sd_status, events=("dashcam_online",), poll=True,
+       enabled=False),
+    _e("camera_firmware", "sensor", "Camera firmware", "mdi:chip",
+       _st.state_camera_firmware, events=("dashcam_online",), poll=True,
+       enabled=False, extra={"entity_category": "diagnostic"}),
+
+    _e("last_journey", "sensor", "Last journey", "mdi:map-marker-path",
+       _st.state_last_journey, events=("sync_done",), interval=30.0,
+       device_class="timestamp", attrs_fn=_st.attrs_last_journey, poll=True),
+    _e("last_journey_distance", "sensor", "Last journey distance",
+       "mdi:map-marker-distance", _st.state_last_journey_distance,
+       events=("sync_done",), interval=30.0, device_class="distance",
+       state_class="measurement", unit="km", poll=True),
+    _e("last_journey_duration", "sensor", "Last journey duration",
+       "mdi:timer-outline", _st.state_last_journey_duration,
+       events=("sync_done",), interval=30.0, device_class="duration",
+       state_class="measurement", unit="min", poll=True),
+
+    # No state_fn: published per hub event by MqttService, never retained.
+    _e("activity", "event", "Activity", "mdi:bell-ring", None, interval=0.0,
+       extra={"event_types": ["clip_downloaded", "download_failed",
+                              "sync_error", "disk_full"]}),
+])
+
+
 def build_command_handlers(app: Any) -> dict[str, Any]:
     """Return a dict of object_id (and 'prioritize_recent') to async
     handlers bound to the running app's services."""
@@ -390,6 +469,12 @@ def build_command_handlers(app: Any) -> dict[str, Any]:
 
     async def _pause_sync(_p: bytes) -> None:
         app.state.sync_worker.pause()
+
+    async def _sync_switch(p: bytes) -> None:
+        if p.strip().upper() == b"ON":
+            await _start_sync(p)
+        else:
+            await _pause_sync(p)
 
     async def _skip_current(_p: bytes) -> None:
         app.state.sync_worker.skip_current()
@@ -431,4 +516,6 @@ def build_command_handlers(app: Any) -> dict[str, Any]:
         "retry_failed": _retry_failed,
         "rescan_archive": _rescan_archive,
         "prioritize_recent": _prioritize_recent,
+        "resume_sync": _start_sync,
+        "sync_enabled": _sync_switch,
     }

@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import json
 import logging
 import os
 import ssl
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
+
+from . import mqtt_state as _st
 
 
 Sink = Callable[[str, bytes, bool, int], Awaitable[None]]
@@ -471,6 +474,13 @@ class MqttService:
                 if not etype:
                     continue
                 snap = self._provider.get()
+                ev = _st.activity_event(event)
+                if ev:
+                    await client.publish(
+                        build_state_topic("activity", cfg),
+                        json.dumps(ev).encode(),
+                        qos=cfg["qos"], retain=False,  # retained would refire on reconnect
+                    )
                 for entity in entities_affected_by(etype):
                     if entity.state_fn is None:
                         continue
@@ -612,7 +622,7 @@ class MqttService:
                 # with hub-event sources are kept fresh by _drain_publishes.
                 if entity.state_fn is None:
                     continue
-                if entity.object_id not in ("disk_used", "dashcam"):
+                if not (entity.poll or entity.object_id in ("disk_used", "dashcam")):
                     continue
                 try:
                     # disk_used walks the whole archive in quota mode —
