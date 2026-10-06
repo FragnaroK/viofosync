@@ -10,7 +10,7 @@ from .auth import auth_disabled
 from .ingress import ingress_prefix
 
 SETUP_PATHS = ("/setup", "/api/setup")
-PASSTHROUGH_PREFIXES = ("/static/",) + SETUP_PATHS
+PASSTHROUGH_PREFIXES = ("/static/", "/healthz") + SETUP_PATHS
 
 
 class SetupModeMiddleware(BaseHTTPMiddleware):

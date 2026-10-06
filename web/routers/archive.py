@@ -14,14 +14,15 @@ import asyncio
 import datetime as _dt
 import logging
 import os
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from ..auth import require_csrf, require_session
-from ..services import durations, filmstrip, route_cache, scanner, thumbs
+from ..services import durations, filmstrip, route_cache, scanner, thumbs, zipstream
 from ..services import tasks as _tasks
 from ..services import gps as gps_service
 from ..services import day_tracks
@@ -1168,6 +1169,119 @@ def clip_video(request: Request, clip_id: int):
         media_type="video/mp4",
         filename=clip["basename"],
     )
+
+
+MAX_ZIP_CLIPS = 500
+
+
+@router.get("/zip")
+def zip_clips(request: Request, ids: str = Query(..., max_length=8000)):
+    """Stream the given clips as one ZIP (comma-separated clip ids)."""
+    try:
+        id_list = [int(x) for x in ids.split(",") if x]
+    except ValueError:
+        raise HTTPException(400, "ids must be integers")
+    if not id_list or len(id_list) > MAX_ZIP_CLIPS:
+        raise HTTPException(400, f"select 1-{MAX_ZIP_CLIPS} clips")
+    marks = ",".join("?" * len(id_list))
+    with _db(request).conn() as c:
+        rows = c.execute(
+            f"SELECT path, basename FROM clip_index WHERE id IN ({marks}) "
+            "ORDER BY timestamp",
+            id_list,
+        ).fetchall()
+    files = [(r["path"], r["basename"]) for r in rows if os.path.isfile(r["path"])]
+    if not files:
+        raise HTTPException(404, "no clip files found")
+    name = f"viofosync-clips-{_dt.datetime.now():%Y%m%d-%H%M%S}.zip"
+    return StreamingResponse(
+        zipstream.stream_zip(files),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            # Already incompressible; keeps the gzip middleware out of the way.
+            "Content-Encoding": "identity",
+        },
+    )
+
+
+# --- Places (map-first browsing) ---
+
+PLACES_BUDGET_S = 25.0
+PLACES_CLIPS_PER_HIT = 24
+
+
+@router.get("/places/search")
+def places_search(
+    request: Request,
+    lat: float = Query(..., ge=-90, le=90),
+    lon: float = Query(..., ge=-180, le=180),
+    radius_m: int = Query(300, ge=20, le=5000),
+    days: int = Query(30, ge=1, le=365),
+) -> dict:
+    """Journeys and stops from the newest GPS days that came within
+    ``radius_m`` of a point, each with its front-camera clips.
+
+    Day routes are cached on disk, but an uncached day parses GPX, so the
+    search stops after ``PLACES_BUDGET_S`` and reports ``partial``.
+    """
+    db = _db(request)
+    s = _settings(request)
+    geocoder = getattr(request.app.state, "geocode", None)
+    with db.conn() as c:
+        day_rows = c.execute(
+            f"SELECT DISTINCT {day_key_sql('basename')} AS d FROM clip_index "
+            "WHERE has_gpx = 1 ORDER BY d DESC LIMIT ?",
+            (days,),
+        ).fetchall()
+
+    started = time.monotonic()
+    hits: list[dict] = []
+    searched = 0
+    partial = False
+    for r in day_rows:
+        if time.monotonic() - started > PLACES_BUDGET_S:
+            partial = True
+            break
+        date = r["d"]
+        payload = build_route_payload(db, s.recordings, date, geocoder, s.locations)
+        searched += 1
+
+        for idx, j in enumerate(payload.get("journeys") or []):
+            coords = j["geojson"]["geometry"]["coordinates"]
+            times = j.get("times") or []
+            inside = [
+                t for (lo, la), t in zip(coords, times)
+                if _haversine_ll(lat, lon, la, lo) <= radius_m
+            ]
+            if inside:
+                hits.append({
+                    "date": date, "kind": "journey", "index": idx,
+                    "start_ts": min(inside), "end_ts": max(inside),
+                    "label": f"{j.get('start_label') or 'Start'} \u2192 {j.get('end_label') or 'End'}",
+                })
+        for idx, st in enumerate(payload.get("stops") or []):
+            if _haversine_ll(lat, lon, st["lat"], st["lon"]) <= radius_m:
+                hits.append({
+                    "date": date, "kind": "stop", "index": idx,
+                    "start_ts": st["start_ts"], "end_ts": st["end_ts"],
+                    "label": st.get("label") or "Stopped",
+                })
+
+    if hits:
+        with db.conn() as c:
+            for h in hits:
+                rows = c.execute(
+                    "SELECT id, timestamp FROM clip_index "
+                    "WHERE timestamp BETWEEN ? AND ? AND substr(camera, -1) = ? "
+                    "ORDER BY timestamp LIMIT ?",
+                    (h["start_ts"] - 120, h["end_ts"], GPS_CAMERA_LETTER,
+                     PLACES_CLIPS_PER_HIT),
+                ).fetchall()
+                h["clips"] = [{"id": x["id"], "timestamp": x["timestamp"]} for x in rows]
+    hits.sort(key=lambda h: h["start_ts"], reverse=True)
+    return {"hits": hits, "searched_days": searched,
+            "total_days": len(day_rows), "partial": partial}
 
 
 # --- Maintenance ---

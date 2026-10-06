@@ -156,6 +156,22 @@ async function ifetch(path, opts = {}) {
 
 // ---------- Auth + routing ----------
 
+// Placeholder tiles shown while a day's clips load.
+function skeletonGrid(n = 6) {
+  return `<div class="clip-grid" aria-busy="true">${
+    '<div class="skeleton-tile"></div>'.repeat(n)}</div>`;
+}
+
+// Fade a thumbnail in once it has loaded (or failed, so it never stays blank).
+function fadeInOnLoad(img) {
+  const done = () => img.classList.add("is-loaded");
+  if (img.complete) done();
+  else {
+    img.addEventListener("load", done, { once: true });
+    img.addEventListener("error", done, { once: true });
+  }
+}
+
 // Replays the CSS expand animation on a body the user just opened (not on
 // re-renders, which would flicker on every refresh).
 function playOpening(el) {
@@ -183,7 +199,7 @@ async function showApp() {
       if (el && j.version) el.textContent = j.version;
     })
     .catch(() => {});
-  routeTo(location.hash || "#/archive");
+  routeTo(location.hash || "#/home");
   openSocket();
   try {
     const s = await api("api/sync/status");
@@ -369,13 +385,19 @@ function routeTo(hash) {
   // "#/settings/dashcam", etc. The first path segment is the
   // top-level tab; further segments are tab-internal routing.
   const stripped = hash.replace(/^#\//, "");
-  const tab = (stripped.split("/")[0]) || "archive";
+  const tab = (stripped.split("/")[0]) || "home";
   // The Settings cog lives outside <nav> (top-right), so select
   // by data-tab anywhere in the header.
   document.querySelectorAll("header a[data-tab]").forEach((a) => {
     a.classList.toggle("active", a.dataset.tab === tab);
   });
   document.getElementById("view-archive").hidden = tab !== "archive";
+  const homeView = document.getElementById("view-home");
+  if (homeView) homeView.hidden = tab !== "home";
+  const placesView = document.getElementById("view-places");
+  if (placesView) placesView.hidden = tab !== "places";
+  if (tab === "home") loadHome();
+  if (tab === "places") initPlaces();
   document.getElementById("view-downloads").hidden = tab !== "downloads";
   const logsView = document.getElementById("view-logs");
   if (logsView) logsView.hidden = tab !== "logs";
@@ -769,7 +791,7 @@ async function loadDayBody(dayEl) {
   // Only show the placeholder on a body that has never rendered; a refresh
   // of an already-populated day keeps the old content on screen until the
   // new payload arrives (renderDayBody swaps it in one go).
-  if (!body.dataset.loaded) body.innerHTML = "<p>Loading…</p>";
+  if (!body.dataset.loaded) body.innerHTML = skeletonGrid();
   await renderDayBody(body, dayEl.dataset.day);
   body.dataset.loaded = "1";
   refreshDayCheck(dayEl);
@@ -1552,6 +1574,7 @@ function renderClipPair(pair) {
     });
   });
   el.querySelectorAll(".thumb img").forEach((img) => {
+    fadeInOnLoad(img);
     img.addEventListener("click", (e) => {
       const thumbEl = e.currentTarget.closest(".thumb");
       const cam = thumbEl ? thumbEl.dataset.camera : "F";
@@ -1872,13 +1895,14 @@ function rebuildClipActionMenu() {
   ];
   // Only rewrite the optgroup when the camera set actually changed — avoids
   // churning the DOM (and closing an open dropdown) on every checkbox tick.
-  const newValues = cams.flatMap((cam) => [`originals-${cam}`, `join-${cam}`]);
+  const newValues = ["zip-all", ...cams.flatMap((cam) => [`originals-${cam}`, `join-${cam}`])];
   // grp is an <optgroup> (no .options — that's a <select>-only property); its
   // <option>s are its direct children.
   const oldValues = [...grp.children].map((o) => o.value);
   if (newValues.join() === oldValues.join()) return;
   const prev = sel.value;
   grp.innerHTML =
+    `<option value="zip-all">Originals · All cameras (ZIP)</option>` +
     cams.map((cam) =>
       `<option value="originals-${cam}">Originals · ${CAMERA_LABEL_BY_CHANNEL[cam]}</option>`).join("") +
     cams.map((cam) =>
@@ -1915,7 +1939,15 @@ async function runQueueAction(action, filenames) {
       if (!endpoint) { toast(`Unknown action: ${action}`, { type: "error" }); return; }
       res = await api(endpoint, { method: "POST", body: JSON.stringify({ filenames }) });
     }
-    toast(`${action.replaceAll("-", " ")}: ${res.updated} updated`);
+    const mark = (n) => `${action.replaceAll("-", " ")}: ${n} updated`;
+    if (action === "skip" && res.updated) {
+      undoToast(mark(res.updated), async () => {
+        await api("api/queue/unskip", { method: "POST", body: JSON.stringify({ filenames }) });
+        loadDays();
+      });
+    } else {
+      toast(mark(res.updated));
+    }
     clearSelection();
     // Skip removes tiles from the archive, so the day cards' totals
     // changed too — anything else only flips per-clip status icons.
@@ -1976,6 +2008,7 @@ async function applyClipAction() {
   const action = document.getElementById("clip-action").value;
 
   // Export actions operate on per-camera clip ids.
+  if (action === "zip-all") { downloadZip(); return; }
   if (action.startsWith("originals-") || action.startsWith("join-")) {
     const cam = action.slice(action.indexOf("-") + 1);
     if (!selectionHasCamera(cam)) {
@@ -2000,8 +2033,17 @@ async function applyClipAction() {
     try {
       const res = await api(lock ? "api/queue/lock" : "api/queue/unlock",
         { method: "POST", body: JSON.stringify({ filenames }) });
-      toast(lock ? `Marked ${res.updated} read-only`
-                 : `Cleared read-only on ${res.updated}`);
+      const msg = lock ? `Marked ${res.updated} read-only`
+                       : `Cleared read-only on ${res.updated}`;
+      if (res.updated) {
+        undoToast(msg, async () => {
+          await api(lock ? "api/queue/unlock" : "api/queue/lock",
+            { method: "POST", body: JSON.stringify({ filenames }) });
+          refreshOpenArchiveDays();
+        });
+      } else {
+        toast(msg);
+      }
       clearSelection();
       refreshOpenArchiveDays();
     } catch (e) {
@@ -3128,13 +3170,16 @@ const QUEUE_ACTIONS = {
                      body: (f) => ({ filenames: f, position: "top" }),
                      label: "moved to front" },
   "skip":          { url: "api/queue/skip",
-                     body: (f) => ({ filenames: f }), label: "skipped" },
+                     body: (f) => ({ filenames: f }), label: "skipped",
+                     undo: "api/queue/unskip" },
   "clear-skip":    { url: "api/queue/unskip",
-                     body: (f) => ({ filenames: f }), label: "un-skipped" },
+                     body: (f) => ({ filenames: f }), label: "un-skipped",
+                     undo: "api/queue/skip" },
   "retry-failed":  { url: "api/queue/retry",
                      body: (f) => ({ filenames: f }), label: "re-queued" },
   "mark-ro":       { url: "api/queue/lock",
-                     body: (f) => ({ filenames: f }), label: "marked read-only" },
+                     body: (f) => ({ filenames: f }), label: "marked read-only",
+                     undo: "api/queue/unlock" },
   "delete-from-camera": {
     url: "api/queue/delete-from-camera",
     body: (f) => ({ filenames: f }),
@@ -3172,10 +3217,19 @@ async function applyQueueAction() {
         { type: spec.toastType ? spec.toastType(r) : "success" });
     } else {
       const n = r.updated ?? 0;
-      toast(n
+      const msg = n
         ? `${n} file${n === 1 ? "" : "s"} ${spec.label}`
-        : "No applicable items in selection.",
-            { type: n ? "success" : "error" });
+        : "No applicable items in selection.";
+      if (n && spec.undo) {
+        undoToast(msg, async () => {
+          await api(spec.undo, {
+            method: "POST", body: JSON.stringify({ filenames }),
+          });
+          await loadQueue();
+        });
+      } else {
+        toast(msg, { type: n ? "success" : "error" });
+      }
     }
     state.queueSelected.clear();
     await loadQueue();
@@ -3443,6 +3497,7 @@ function openSocket() {
 }
 
 function handleEvent(ev) {
+  if (HOME_REFRESH_EVENTS.has(ev.type)) scheduleHomeRefresh();
   const statusEl = document.getElementById("sync-status");
   const STATUS_LABEL = {
     downloading: "Downloading",
@@ -3632,6 +3687,13 @@ function updateCurrent(info) {
     <div class="bar"><div style="width:${pct}%"></div></div>
   `;
   state.currentFilename = info.filename;
+  state.currentInfo = { filename: info.filename, pct: Number(pct), done, total, speed };
+  const hb = document.getElementById("home-cur-bar");
+  if (hb) {
+    hb.style.width = `${pct}%`;
+    const ht = document.getElementById("home-cur-text");
+    if (ht) ht.textContent = `${done} / ${total} · ${pct}% · ${speed}`;
+  }
 }
 
 function updateSessionStats(s) {
@@ -3765,6 +3827,15 @@ function renderField(pane, key, label, control) {
   row.className = "form-row";
   const lbl = document.createElement("label");
   lbl.textContent = label;
+  if (SETTING_HELP[key]) {
+    const tip = document.createElement("span");
+    tip.className = "help-i";
+    tip.tabIndex = 0;
+    tip.textContent = "ⓘ";
+    tip.setAttribute("data-tip", SETTING_HELP[key]);
+    tip.setAttribute("aria-label", SETTING_HELP[key]);
+    lbl.appendChild(tip);
+  }
   if (settingsState.restart_required.includes(key)) {
     const chip = document.createElement("span");
     chip.className = "restart-required-chip";
@@ -4829,6 +4900,347 @@ window.addEventListener("hashchange", () => {
     renderSettingsSection(currentSettingsSection());
   }
 });
+
+// ---------- Undo ----------
+
+function undoToast(message, undoFn) {
+  toast(message, {
+    actionLabel: "Undo", duration: 8000,
+    onAction: async () => {
+      try { await undoFn(); toast("Undone"); }
+      catch (e) { toast(`Undo failed: ${e.message || e}`, { type: "error" }); }
+    },
+  });
+}
+
+// ---------- ZIP download ----------
+
+const MAX_ZIP_CLIPS = 500;  // mirrors the server limit
+
+function downloadZip() {
+  const ids = [];
+  for (const v of state.archiveSelected.values()) {
+    for (const c of CAMERAS) if (v[c.channel]) ids.push(v[c.channel]);
+  }
+  if (!ids.length) {
+    toast("No downloaded clips in the selection.", { type: "error" });
+    return;
+  }
+  if (ids.length > MAX_ZIP_CLIPS) {
+    toast(`Select at most ${MAX_ZIP_CLIPS} clips per ZIP.`, { type: "error" });
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = `api/archive/zip?ids=${ids.join(",")}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// ---------- Theme ----------
+
+const THEME_KEY = "vfs.theme";
+const THEME_CYCLE = ["auto", "light", "dark"];
+const THEME_ICON = { auto: "\u25d0", light: "\u2600", dark: "\u263e" };
+
+function currentTheme() {
+  let t = null;
+  try { t = localStorage.getItem(THEME_KEY); } catch {}
+  return THEME_CYCLE.includes(t) ? t : "auto";
+}
+
+function applyTheme(t) {
+  if (t === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+  try { localStorage.setItem(THEME_KEY, t); } catch {}
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.title = btn.ariaLabel = `Theme: ${t}`;
+    document.getElementById("theme-icon").textContent = THEME_ICON[t];
+  }
+}
+
+document.getElementById("theme-toggle").addEventListener("click", () => {
+  const next = THEME_CYCLE[(THEME_CYCLE.indexOf(currentTheme()) + 1) % THEME_CYCLE.length];
+  applyTheme(next);
+});
+applyTheme(currentTheme());
+
+// ---------- Settings help ----------
+// Shown as a data-tip tooltip next to the setting's label.
+
+const SETTING_HELP = {
+  HTML: "Reads the camera's web page listing instead of its XML. Try it if the XML listing is slow or misses files.",
+  TIMEOUT: "How long to wait on the camera before a request counts as failed.",
+  ENABLE_SCHEDULED_SYNC: "Check the camera on a timer. Turn off to sync only when you press Start.",
+  SYNC_INTERVAL: "Seconds between camera checks while scheduled sync is on.",
+  DOWNLOAD_ATTEMPTS: "Retries for one clip within a single sync cycle before moving on.",
+  MAX_DOWNLOAD_ATTEMPTS: "Total failures allowed over all cycles before a clip is marked failed.",
+  PARALLEL_DOWNLOADS: "Clips downloaded at the same time. Many dashcams cope with only one or two connections; raise this gradually.",
+  DELETE_AFTER_DOWNLOAD: "Remove each clip from the camera's SD card once it is verified locally. Read-only clips are never deleted.",
+  GPS_EXTRACT: "Write a GPX track next to each clip so journeys and maps work.",
+  GEOCODE_ENABLED: "Look up place names for journey start and end points (uses OpenStreetMap Nominatim).",
+  NOMINATIM_EMAIL: "Optional contact address sent to Nominatim, as its usage policy asks.",
+  DISTANCE_UNITS: "Kilometres or miles for journey distances.",
+  DERIVE_THUMBS_EAGER: "Build thumbnails in the background as clips arrive, instead of on first view.",
+  DERIVE_FILMSTRIPS_EAGER: "Build timeline filmstrips in the background. Uses more CPU but makes the timeline instant.",
+  EXPORT_ENCODER: "H.264 encoder for exports. Auto picks the best working hardware option and falls back to software.",
+  PIP_POSITION: "Corner where the small camera appears in picture-in-picture exports.",
+  GROUPING: "How downloaded clips are arranged into folders. Changing it does not move existing files.",
+  RETENTION_MAX_DAYS: "Delete clips older than this many days. 0 keeps everything.",
+  RETENTION_DISK_PCT: "Start deleting the oldest clips when the filesystem passes this percentage full.",
+  RECORDINGS_QUOTA_GB: "Start deleting the oldest clips when recordings exceed this size. Use it on shares with a quota.",
+  RETENTION_PROTECT_RO: "Keep read-only (locked) clips even when cleanup needs space.",
+  DISK_CRITICAL_PCT: "Stop syncing and show an error at this filesystem usage. Keep it at or above the cleanup trigger.",
+  INSTANCE_NAME: "A label for telling several installs apart. Leave as \"viofosync\" to hide it.",
+  WEB_HOST: "Address the web server binds to. 0.0.0.0 listens on every interface.",
+  WEB_PORT: "Port for the web interface. Takes effect after a restart.",
+  MQTT_ENABLED: "Publish state and accept commands over MQTT, with Home Assistant auto-discovery.",
+  MQTT_HOST: "Hostname or IP of your MQTT broker. In Home Assistant, use the Home Assistant machine's IP address.",
+  MQTT_PORT: "Broker port. 1883 is plain, 8883 is usually TLS.",
+  MQTT_TLS: "Encrypt the broker connection.",
+  MQTT_NODE_ID: "Prefix for topics and entity IDs. Changing it creates new entities in Home Assistant.",
+  MQTT_DISCOVERY_PREFIX: "Home Assistant's discovery prefix. Leave as \"homeassistant\" unless you changed it there.",
+  MQTT_DISCOVERY_ENABLED: "Let Home Assistant create the entities automatically.",
+  MQTT_QOS: "Delivery guarantee for MQTT messages. 1 is a safe default.",
+  PRIMARY_GPS_TRIAGE: "Read each queued clip's GPS track off the camera before downloading, so places can be skipped.",
+  ALTERNATIVE_GPS_TRIAGE: "Read each queued clip's GPS track off the camera before downloading, so places can be skipped.",
+  PRIMARY_SCOPE: "Which clips this connection downloads. Others wait for a connection that allows them.",
+  ALTERNATIVE_SCOPE: "Which clips this connection downloads. Others wait for a connection that allows them.",
+};
+
+// ---------- Home dashboard ----------
+
+const HOME_REFRESH_EVENTS = new Set([
+  "snapshot", "queue_changed", "sync_status", "sync_state", "dashcam_online",
+  "dashcam_offline", "item_finished", "clip_indexed",
+]);
+let _homeTimer = null;
+let _homeReq = 0;
+
+function scheduleHomeRefresh() {
+  const view = document.getElementById("view-home");
+  if (!view || view.hidden || _homeTimer) return;
+  _homeTimer = setTimeout(() => { _homeTimer = null; loadHome(); }, 1500);
+}
+
+const HOME_STATUS_LABEL = {
+  downloading: "Downloading", triaging: "Triaging GPS", waiting: "Waiting",
+  paused: "Paused", error: "Error",
+};
+
+async function loadHome() {
+  const root = document.getElementById("home-root");
+  if (!root) return;
+  const req = ++_homeReq;
+  const kinds = "driving=true&parking=true&ro=true";
+  const [queue, usage, days] = await Promise.all([
+    api("api/queue/days?" + kinds).catch(() => null),
+    api("api/storage/usage").catch(() => null),
+    api(`api/archive/days?page=1&per_page=3&sort=desc&${kinds}`).catch(() => null),
+  ]);
+  const gpxDay = ((days && days.days) || []).find((d) => d.gpx_count);
+  const route = gpxDay
+    ? await api(`api/archive/day/${gpxDay.day}/route`).catch(() => null)
+    : null;
+  if (req !== _homeReq) return;
+  renderHome(root, { queue, usage, days, route, routeDay: gpxDay && gpxDay.day });
+}
+
+function renderHome(root, d) {
+  const sum = (k) => ((d.queue && d.queue.days) || []).reduce((n, x) => n + (x[k] || 0), 0);
+  const pending = sum("pending_count"), failed = sum("failed_count");
+  const downloading = sum("downloading_count"), gone = sum("gone_count");
+  const toGo = sum("pending_bytes");
+
+  const status = state.syncStatus;
+  const statusText = HOME_STATUS_LABEL[status] || "Idle";
+  const statusCls = status || "";
+  const syncBtn = !state.syncRunning ? "Start sync"
+    : state.syncPaused ? "Resume" : "Pause";
+  const cur = state.currentInfo;
+  const curBlock = state.currentFilename && cur ? `
+      <div class="home-current">
+        <strong>${escHtml(cur.filename)}</strong>
+        <div class="bar"><div id="home-cur-bar" style="width:${cur.pct}%"></div></div>
+        <span id="home-cur-text" class="hint">${escHtml(`${cur.done} / ${cur.total} · ${cur.pct}% · ${cur.speed}`)}</span>
+      </div>` : "";
+
+  const camera = state.dashcamOnline == null ? ["unknown", "conn-status-unknown"]
+    : state.dashcamOnline
+      ? [state.dashcamSource === "alternative" ? "via alternative" : "connected", "conn-status-on"]
+      : ["unreachable", "conn-status-off"];
+
+  const u = d.usage;
+  const usageBlock = u && u.used_pct != null ? `
+      <div class="storage-usage-bar">
+        <div class="storage-usage-fill${u.threshold_pct != null && u.used_pct >= u.threshold_pct ? " over-threshold" : ""}"
+             style="width:${Math.min(100, u.used_pct)}%"></div>
+      </div>
+      <p class="hint">${u.used_pct.toFixed(1)}% · ${fmtBytes(u.used_bytes)} of ${fmtBytes(u.total_bytes)}</p>`
+    : `<p class="hint">Usage unavailable.</p>`;
+
+  const journeys = ((d.route && d.route.journeys) || []).slice(-3).reverse();
+  const journeyRows = journeys.length
+    ? journeys.map((j) => {
+        const idx = d.route.journeys.indexOf(j);
+        const lbl = (l, lat, lon) => l || `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+        return `<li><a href="#/timeline/${escHtml(d.routeDay)}/${idx}">
+          ${escHtml(lbl(j.start_label, j.start_lat, j.start_lon))} →
+          ${escHtml(lbl(j.end_label, j.end_lat, j.end_lon))}</a>
+          <span class="hint">${fmtDuration(j.duration_s)} · ${fmtDistance(j.distance_m)}</span></li>`;
+      }).join("")
+    : `<li class="hint">No journeys yet.</li>`;
+
+  const dayRows = ((d.days && d.days.days) || []).map((x) =>
+    `<li><a href="#/archive">${escHtml(x.day)}</a>
+      <span class="hint">${x.clip_count} clips · ${fmtBytes(x.total_bytes)}</span></li>`).join("")
+    || `<li class="hint">No recordings yet.</li>`;
+
+  root.innerHTML = `
+    <div class="home-card">
+      <h3>Sync <span class="status ${escHtml(statusCls)}">${escHtml(statusText)}</span></h3>
+      ${state.syncStatusReason ? `<p class="hint">${escHtml(state.syncStatusReason)}</p>` : ""}
+      ${curBlock}
+      <div class="home-actions">
+        <button type="button" data-home-act="toggle-sync">${syncBtn}</button>
+        <button type="button" data-home-act="skip-current" ${state.currentFilename ? "" : "disabled"}>Skip current</button>
+      </div>
+    </div>
+    <div class="home-card">
+      <h3>Dashcam <span class="conn-status ${camera[1]}">${camera[0]}</span></h3>
+      <div class="home-actions">
+        <a class="btn-link" href="#/camera">Camera settings</a>
+        <a class="btn-link" href="#/places">Places</a>
+      </div>
+    </div>
+    <div class="home-card">
+      <h3>Queue</h3>
+      <div class="home-stats">
+        <div><b>${pending}</b><span>pending</span></div>
+        <div><b>${downloading}</b><span>downloading</span></div>
+        <div><b class="${failed ? "warn" : ""}">${failed}</b><span>failed</span></div>
+        <div><b>${gone}</b><span>gone</span></div>
+      </div>
+      <p class="hint">${fmtBytes(toGo)} to go · <a href="#/downloads">Open downloads</a></p>
+    </div>
+    <div class="home-card">
+      <h3>Storage</h3>
+      ${usageBlock}
+    </div>
+    <div class="home-card">
+      <h3>Recent journeys</h3>
+      <ul class="home-list">${journeyRows}</ul>
+    </div>
+    <div class="home-card">
+      <h3>Recent days</h3>
+      <ul class="home-list">${dayRows}</ul>
+      <div class="home-actions"><button type="button" data-home-act="rescan">Rescan</button></div>
+    </div>`;
+}
+
+document.getElementById("home-root").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-home-act]");
+  if (!btn) return;
+  const act = btn.dataset.homeAct;
+  if (act === "toggle-sync") {
+    document.getElementById("sync-toggle").click();
+  } else if (act === "skip-current") {
+    skipCurrentDownload();
+  } else if (act === "rescan") {
+    btn.disabled = true;
+    try { await api("api/archive/rescan", { method: "POST" }); toast("Rescan done"); }
+    catch (err) { toast(`Rescan failed: ${err.message || err}`, { type: "error" }); }
+    loadHome();
+  }
+});
+
+// ---------- Places (map-first browsing) ----------
+
+const places = { map: null, marker: null, circle: null, lat: null, lon: null };
+
+function initPlaces() {
+  const el = document.getElementById("places-map");
+  if (!el || typeof L === "undefined") return;
+  if (!places.map) {
+    const home = (state.locations || []).find((l) => l.is_home);
+    places.map = L.map(el).setView(home ? [home.lat, home.lon] : [20, 0], home ? 12 : 2);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: "© OpenStreetMap",
+    }).addTo(places.map);
+    places.map.on("click", (e) => setPlacesPoint(e.latlng.lat, e.latlng.lng));
+    const radius = document.getElementById("places-radius");
+    radius.addEventListener("input", () => {
+      document.getElementById("places-radius-val").textContent = `${radius.value} m`;
+      if (places.circle) places.circle.setRadius(Number(radius.value));
+    });
+    document.getElementById("places-search").addEventListener("click", runPlacesSearch);
+    document.getElementById("places-results").addEventListener("click", (e) => {
+      const img = e.target.closest("img[data-id]");
+      if (img) openVideo(Number(img.dataset.id), "F", null);
+    });
+  }
+  requestAnimationFrame(() => places.map.invalidateSize());
+}
+
+function setPlacesPoint(lat, lon) {
+  places.lat = lat;
+  places.lon = lon;
+  const r = Number(document.getElementById("places-radius").value);
+  if (places.marker) {
+    places.marker.setLatLng([lat, lon]);
+    places.circle.setLatLng([lat, lon]);
+  } else {
+    places.marker = L.marker([lat, lon]).addTo(places.map);
+    places.circle = L.circle([lat, lon], { radius: r, color: cssVar("--accent") }).addTo(places.map);
+  }
+  document.getElementById("places-search").disabled = false;
+}
+
+async function runPlacesSearch() {
+  if (places.lat == null) return;
+  const status = document.getElementById("places-status");
+  const results = document.getElementById("places-results");
+  const btn = document.getElementById("places-search");
+  btn.disabled = true;
+  status.textContent = "Searching…";
+  try {
+    const q = new URLSearchParams({
+      lat: places.lat, lon: places.lon,
+      radius_m: document.getElementById("places-radius").value, days: 60,
+    });
+    const r = await api("api/archive/places/search?" + q);
+    renderPlaceHits(results, r);
+    status.textContent = r.partial
+      ? `Searched ${r.searched_days} of ${r.total_days} days — search again to continue.`
+      : `Searched ${r.searched_days} days · ${r.hits.length} match${r.hits.length === 1 ? "" : "es"}.`;
+  } catch (e) {
+    status.textContent = `Search failed: ${e.message || e}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderPlaceHits(root, r) {
+  if (!r.hits.length) {
+    root.innerHTML = `<p class="hint">Nothing recorded within that radius.</p>`;
+    return;
+  }
+  const t = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  root.innerHTML = r.hits.map((h) => `
+    <div class="place-hit">
+      <div class="place-hit-head">
+        <strong>${escHtml(h.label)}</strong>
+        <span class="hint">${escHtml(h.date)} · ${t(h.start_ts)}–${t(h.end_ts)} · ${escHtml(h.kind)}</span>
+        ${h.kind === "journey"
+          ? `<a href="#/timeline/${escHtml(h.date)}/${h.index}">Timeline</a>` : ""}
+      </div>
+      <div class="place-clips">${h.clips.map((c) =>
+        `<img src="api/archive/clip/${c.id}/thumb" data-id="${c.id}" alt="" loading="lazy" />`
+      ).join("") || `<span class="hint">No downloaded clips for this period.</span>`}</div>
+    </div>`).join("");
+  root.querySelectorAll("img").forEach(fadeInOnLoad);
+}
 
 // ---------- Bootstrap ----------
 

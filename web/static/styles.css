@@ -2685,6 +2685,176 @@ button:disabled { cursor: default; }
   button:active:not(:disabled) { transform: none; }
 }
 
+/* ============================================================
+ * Thumbnails: skeleton shimmer until loaded, then fade in.
+ * ============================================================ */
+@keyframes vfs-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+.clip-pair .thumb img:not(.is-loaded),
+.place-clips img:not(.is-loaded),
+.skeleton-tile {
+  background: linear-gradient(90deg, var(--panel-2) 25%, var(--panel-3) 50%, var(--panel-2) 75%);
+  background-size: 200% 100%;
+  animation: vfs-shimmer 1.3s linear infinite;
+}
+.clip-pair .thumb img.is-loaded,
+.place-clips img.is-loaded { animation: vfs-fade 260ms ease both; }
+.skeleton-tile { aspect-ratio: 16 / 9; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .clip-pair .thumb img:not(.is-loaded), .place-clips img:not(.is-loaded),
+  .skeleton-tile, .clip-pair .thumb img.is-loaded, .place-clips img.is-loaded { animation: none; }
+}
+
+/* ============================================================
+ * Light theme: explicit [data-theme=light], or auto when the OS asks for it.
+ * ============================================================ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f5f9;
+  --panel: oklch(0.99 0.004 250);
+  --panel-2: oklch(0.96 0.006 250);
+  --panel-3: oklch(0.92 0.009 250);
+  --border: oklch(0.86 0.012 250);
+  --border-hover: oklch(0.74 0.016 250);
+  --text: oklch(0.22 0.02 250);
+  --muted: oklch(0.48 0.02 250);
+  --accent: oklch(0.55 0.19 258);
+  --on-accent: #ffffff;
+  --ok: oklch(0.52 0.15 145);
+  --warn: oklch(0.55 0.15 70);
+  --err-text: oklch(0.48 0.2 28);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f3f5f9;
+    --panel: oklch(0.99 0.004 250);
+    --panel-2: oklch(0.96 0.006 250);
+    --panel-3: oklch(0.92 0.009 250);
+    --border: oklch(0.86 0.012 250);
+    --border-hover: oklch(0.74 0.016 250);
+    --text: oklch(0.22 0.02 250);
+    --muted: oklch(0.48 0.02 250);
+    --accent: oklch(0.55 0.19 258);
+    --on-accent: #ffffff;
+    --ok: oklch(0.52 0.15 145);
+    --warn: oklch(0.55 0.15 70);
+    --err-text: oklch(0.48 0.2 28);
+  }
+}
+/* The timeline editor and video modal are designed dark; keep them so. */
+:root[data-theme="light"] #view-timeline {
+  color-scheme: dark;
+  --bg: #15171c; --panel: oklch(0.20 0.010 250); --panel-2: oklch(0.25 0.012 250);
+  --panel-3: oklch(0.30 0.014 250); --border: oklch(0.32 0.014 250);
+  --border-hover: oklch(0.40 0.016 250); --text: oklch(0.94 0.008 250);
+  --muted: oklch(0.66 0.018 250); --accent: oklch(0.68 0.19 258);
+  --on-accent: oklch(0.15 0.008 250); --ok: oklch(0.74 0.16 145);
+  --warn: oklch(0.82 0.16 85); --err-text: oklch(0.76 0.18 28);
+  background: var(--bg); color: var(--text); border-radius: 8px;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) #view-timeline {
+    color-scheme: dark;
+    --bg: #15171c; --panel: oklch(0.20 0.010 250); --panel-2: oklch(0.25 0.012 250);
+    --panel-3: oklch(0.30 0.014 250); --border: oklch(0.32 0.014 250);
+    --border-hover: oklch(0.40 0.016 250); --text: oklch(0.94 0.008 250);
+    --muted: oklch(0.66 0.018 250); --accent: oklch(0.68 0.19 258);
+    --on-accent: oklch(0.15 0.008 250); --ok: oklch(0.74 0.16 145);
+    --warn: oklch(0.82 0.16 85); --err-text: oklch(0.76 0.18 28);
+    background: var(--bg); color: var(--text); border-radius: 8px;
+  }
+}
+/* Hover tints were white-on-dark; flip them for light surfaces. */
+:root[data-theme="light"] .day-header:hover,
+:root[data-theme="light"] .queue-hour-header:hover,
+:root[data-theme="light"] .settings-link:hover,
+:root[data-theme="light"] .queue-items tbody tr:hover { background: rgba(0, 0, 0, 0.04); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .day-header:hover,
+  :root:not([data-theme="dark"]) .queue-hour-header:hover,
+  :root:not([data-theme="dark"]) .settings-link:hover,
+  :root:not([data-theme="dark"]) .queue-items tbody tr:hover { background: rgba(0, 0, 0, 0.04); }
+}
+#theme-icon { font-size: 16px; line-height: 1; }
+
+/* ============================================================
+ * Settings help tooltips and small link-buttons.
+ * ============================================================ */
+.help-i {
+  display: inline-block; margin-left: 6px; color: var(--muted);
+  cursor: help; font-size: 12px; vertical-align: middle;
+}
+.help-i:hover, .help-i:focus-visible { color: var(--accent); }
+.btn-link {
+  display: inline-flex; align-items: center; padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel-2); color: var(--text);
+}
+.btn-link:hover { background: var(--panel-3); }
+
+/* ============================================================
+ * Home dashboard
+ * ============================================================ */
+.home-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.home-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px;
+}
+.home-card h3 {
+  margin: 0 0 10px; font-size: 14px; display: flex;
+  align-items: center; gap: 8px; justify-content: space-between;
+}
+.home-card .hint { margin: 6px 0 0; }
+.home-card .status { height: 24px; }
+.home-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.home-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+.home-stats b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.home-stats b.warn { color: var(--warn); }
+.home-stats span { color: var(--muted); font-size: 11px; }
+.home-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.home-list li { display: flex; flex-direction: column; gap: 2px; }
+.home-current .bar { margin: 6px 0 2px; }
+
+/* ============================================================
+ * Places map
+ * ============================================================ */
+.places-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+.places-controls input[type="range"] { flex: 0 1 220px; }
+.places-map { height: 360px; border-radius: 8px; border: 1px solid var(--border); overflow: hidden; }
+#places-results { margin-top: 14px; display: grid; gap: 10px; }
+.place-hit { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.place-hit-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; }
+.place-clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+.place-clips img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; cursor: pointer; }
+
+/* ============================================================
+ * Navigation: icons only appear in the mobile bottom bar.
+ * ============================================================ */
+nav a .nav-ico { display: none; }
+@media (max-width: 720px) {
+  #app header nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 900;
+    order: 0; flex: none; display: flex; gap: 2px;
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 6px max(6px, env(safe-area-inset-right))
+             calc(6px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+  }
+  nav a {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; padding: 6px 2px; font-size: 11px; min-width: 0;
+  }
+  nav a .nav-ico { display: block; }
+  main { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .home-stats { grid-template-columns: repeat(2, 1fr); }
+  #toast-container { bottom: calc(76px + env(safe-area-inset-bottom)); }
+}
+
 /* Journey completion pie — small conic-gradient circle in the journey header. */
 .journey-pie {
   display: inline-block;

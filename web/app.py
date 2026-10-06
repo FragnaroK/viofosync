@@ -449,6 +449,13 @@ def create_app() -> FastAPI:
     app.include_router(imports_router.router)
     app.include_router(logs_router.router)
 
+    @app.get("/healthz")
+    def healthz() -> dict:
+        """Unauthenticated liveness probe: the DB answers a trivial query."""
+        with app.state.db.conn() as c:
+            c.execute("SELECT 1").fetchone()
+        return {"ok": True}
+
     # Static SPA — served at / with an explicit index.html fall-through
     # so the SPA's hash-router owns everything that isn't /api/*.
     if os.path.isdir(STATIC_DIR):
