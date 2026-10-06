@@ -2,7 +2,7 @@ name: Viofosync
 version: "latest"
 slug: viofosync
 description: Sync and browse Viofo dashcam recordings
-url: https://github.com/RobXYZ/viofosync
+url: https://github.com/FragnaroK/viofosync
 arch:
   - amd64
   - aarch64
