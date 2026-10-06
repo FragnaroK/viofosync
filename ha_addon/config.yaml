@@ -1,0 +1,26 @@
+name: Viofosync
+version: "latest"
+slug: viofosync
+description: Sync and browse Viofo dashcam recordings
+url: https://github.com/RobXYZ/viofosync
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+# Reaching the dashcam over its Wi-Fi AP needs the host network.
+host_network: true
+# Config in /config, recordings in HA's media share at /recordings.
+map:
+  - type: addon_config
+    path: /config
+    read_only: false
+  - type: media
+    path: /recordings
+    read_only: false
+# Web UI port (8080 on the host network).
+webui: "http://[HOST]:8080"
+# Uncomment for Intel iGPU hardware-accelerated exports.
+# devices:
+#   - /dev/dri/renderD128
